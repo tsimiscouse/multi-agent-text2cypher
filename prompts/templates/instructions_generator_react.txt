@@ -1,0 +1,82 @@
+Anda menghasilkan instruksi koreksi berdasarkan hasil verifikasi entitas. Gunakan format ReAct (Reasoning and Acting) untuk membuat instruksi yang jelas dan dapat ditindaklanjuti.
+
+Berikut adalah contoh-contoh cara menghasilkan instruksi dengan ReAct:
+
+Example 1:
+Query: MATCH (p:M)-[:PREREQUISIT]->(m:MK {nama: "Basis Data"}) RETURN p.nama
+Invalid Entities:
+- Node Labels: M (should be: MK)
+- Relationships: PREREQUISIT (should be: PREREQUISITE)
+Suggestions:
+- M → MK (similarity: 0.50)
+- PREREQUISIT → PREREQUISITE (similarity: 0.92)
+
+Thought 1: Ada dua error - node label salah dan relationship typo
+Action 1: Identifikasi tipe error - "M" kemungkinan typo dari "MK", "PREREQUISIT" hilang huruf E
+Observation 1: Keduanya adalah typo dengan saran koreksi yang jelas
+Thought 2: Error pada relationship lebih kritis karena akan menyebabkan query gagal
+Action 2: Prioritaskan koreksi - relationship dulu (critical), lalu node label
+Observation 2: Saran replacement sudah jelas dengan similarity score tinggi
+Thought 3: Saya bisa membuat instruksi koreksi yang spesifik
+Final Answer:
+Koreksi Label Node:
+- Ganti 'M' dengan 'MK' (similaritas: 0.50)
+
+Koreksi Relasi:
+- Ganti 'PREREQUISIT' dengan 'PREREQUISITE' (similaritas: 0.92)
+
+Example 2:
+Query: MATCH (t:topi)-[:PART_OF]->(l:LO) RETURN t.deskripsi
+Invalid Entities:
+- Node Labels: topi (should be: topic)
+Suggestions:
+- topi → topic (similarity: 0.80)
+- topi → MK (similarity: 0.30)
+
+Thought 1: Ada satu error pada node label "topi"
+Action 1: Periksa saran - ada dua opsi dengan similarity berbeda
+Observation 1: "topic" memiliki similarity 0.80 jauh lebih tinggi dari "MK" (0.30)
+Thought 2: Saran pertama jelas lebih tepat
+Action 2: Pilih saran dengan similarity tertinggi
+Observation 2: "topi" hampir pasti typo dari "topic"
+Thought 3: Instruksi sederhana karena hanya satu error
+Final Answer:
+Koreksi Label Node:
+- Ganti 'topi' dengan 'topic' (similaritas: 0.80)
+
+Example 3:
+Query: MATCH (m:MK)-[:INVALID_REL]->(p:Unknown) RETURN m.nama
+Invalid Entities:
+- Node Labels: Unknown (no suggestions found)
+- Relationships: INVALID_REL (no suggestions found)
+Suggestions: None
+
+Thought 1: Ada dua error tapi tidak ada saran untuk keduanya
+Action 1: Analisis kenapa tidak ada saran - kemungkinan entitas benar-benar tidak ada di schema
+Observation 1: Tidak ada entitas serupa di schema untuk "Unknown" dan "INVALID_REL"
+Thought 2: Tanpa saran, instruksi harus lebih general
+Action 2: Sarankan untuk memeriksa schema dan intent pertanyaan
+Observation 2: User perlu re-evaluate query structure secara keseluruhan
+Thought 3: Berikan instruksi untuk review ulang
+Final Answer:
+Koreksi Label Node:
+- Hapus atau ganti 'Unknown' - tidak ada node label yang serupa di schema
+
+Koreksi Relasi:
+- Hapus atau ganti 'INVALID_REL' - tidak ada relasi yang serupa di schema
+
+Saran: Periksa kembali schema dan pastikan intent pertanyaan sesuai dengan entitas yang tersedia
+
+Sekarang buatkan instruksi untuk query berikut:
+
+Query: {query}
+Invalid Entities: {invalid_entities}
+Suggestions: {suggestions}
+
+Instruksi penting:
+- Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
+- Prioritaskan error kritis (relationship, node labels) sebelum properti
+- Sertakan similarity score jika tersedia
+- Akhiri dengan "Final Answer:" berisi instruksi koreksi terstruktur
+
+Mulai reasoning Anda:

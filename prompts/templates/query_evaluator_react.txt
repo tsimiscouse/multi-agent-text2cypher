@@ -1,0 +1,67 @@
+Anda adalah evaluator query Cypher. Gunakan format ReAct (Reasoning and Acting) untuk mengevaluasi apakah query menjawab pertanyaan dengan benar.
+
+Berikut adalah contoh-contoh cara mengevaluasi dengan ReAct:
+
+Example 1:
+Question: Berapa banyak mata kuliah yang menjadi prasyarat untuk Basis Data?
+Query: MATCH (p:MK)-[:PREREQUISITE]->(m:MK {nama: "Basis Data"}) RETURN COUNT(p)
+Execution Result: {"success": true, "result": [{"COUNT(p)": 2}]}
+
+Thought 1: Pertanyaan menanyakan jumlah mata kuliah prasyarat untuk "Basis Data"
+Action 1: Periksa apakah query menangkap intent ini - query mencari pattern (p)-[:PREREQUISITE]->(Basis Data) yang benar
+Observation 1: Query structure sudah benar, menggunakan COUNT untuk menghitung jumlah
+Thought 2: Periksa apakah query berhasil dieksekusi
+Action 2: Cek execution result - success: true dan ada hasil numerik
+Observation 2: Query berhasil dieksekusi dan mengembalikan angka 2
+Thought 3: Apakah hasil semantik benar? Query menghitung prasyarat yang mengarah ke Basis Data, sesuai pertanyaan
+Action 3: Bandingkan intent pertanyaan dengan hasil query
+Observation 3: Query menjawab pertanyaan dengan benar
+Final Answer:
+Evaluation: accept
+Reasoning: Query berhasil dieksekusi dan secara semantik benar menjawab jumlah mata kuliah prasyarat
+
+Example 2:
+Question: Apa saja topik dalam LO1 mata kuliah Rekayasa Data?
+Query: MATCH (t:topic)-[:PART_OF]->(l:LO {nama: "LO1"}) RETURN t.deskripsi
+Execution Result: {"success": true, "result": [{"t.deskripsi": "Normalisasi Database"}, {"t.deskripsi": "ER Diagram"}, {"t.deskripsi": "Index Optimization"}]}
+
+Thought 1: Pertanyaan menanyakan topik dalam LO1 di mata kuliah "Rekayasa Data"
+Action 1: Periksa query - ada filter untuk LO1 tapi tidak ada filter untuk mata kuliah
+Observation 1: Query tidak memfilter berdasarkan MK, bisa mengembalikan LO1 dari mata kuliah lain
+Thought 2: Periksa hasil eksekusi - berhasil tapi mungkin data dari berbagai mata kuliah
+Action 2: Analisis apakah filter MK diperlukan
+Observation 2: Tanpa filter MK: "Rekayasa Data", hasil bisa include topik dari mata kuliah lain yang juga punya LO1
+Thought 3: Query secara teknis berhasil tapi semantik tidak lengkap
+Final Answer:
+Evaluation: incorrect
+Reasoning: Query tidak memfilter berdasarkan mata kuliah, hasil mungkin include LO1 dari mata kuliah lain
+
+Example 3:
+Question: Tampilkan nama mata kuliah yang punya prasyarat
+Query: MATCH (m:MK)-[:PREREQUISIT]->(p:MK) RETURN m.nama
+Execution Result: {"success": false, "error": "Type mismatch: expected Relationship but was String (line 1, column 21)"}
+
+Thought 1: Query mengalami error saat eksekusi
+Action 1: Periksa pesan error - ada type mismatch dan menyebut masalah pada relationship
+Observation 1: Error message menunjukkan ada kesalahan pada definisi relasi
+Thought 2: Periksa nama relasi dalam query - ditulis PREREQUISIT
+Action 2: Bandingkan dengan schema yang valid - seharusnya PREREQUISITE
+Observation 2: Ada typo, huruf E hilang di akhir nama relasi
+Thought 3: Query gagal karena syntax error
+Final Answer:
+Evaluation: error
+Reasoning: Query gagal dieksekusi karena typo pada nama relasi - PREREQUISIT seharusnya PREREQUISITE
+
+Sekarang evaluasi query berikut menggunakan format yang sama:
+
+Question: {question}
+Query: {query}
+Execution Result: {execution_result}
+
+Instruksi penting:
+- Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
+- Periksa: (1) Intent query vs pertanyaan, (2) Eksekusi berhasil atau error, (3) Semantik hasil benar atau tidak
+- Evaluasi harus salah satu dari: "accept", "incorrect", "error"
+- Akhiri dengan "Final Answer:" yang berisi Evaluation dan Reasoning
+
+Mulai reasoning Anda:

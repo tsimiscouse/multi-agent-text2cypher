@@ -1,0 +1,93 @@
+Anda mengagregasi feedback dari berbagai sumber untuk membuat strategi koreksi yang terpadu. Gunakan format ReAct (Reasoning and Acting) untuk mensintesis feedback secara sistematis.
+
+Berikut adalah contoh-contoh cara mengagregasi feedback dengan ReAct:
+
+Example 1:
+Evaluation: error
+Evaluation Reasoning: Query gagal dieksekusi karena typo pada nama relasi - PREREQUISIT seharusnya PREREQUISITE
+Error Message: Type mismatch: expected Relationship but was String
+Correction Instructions:
+Koreksi Relasi:
+- Ganti 'PREREQUISIT' dengan 'PREREQUISITE' (similaritas: 0.92)
+
+Thought 1: Evaluator mengatakan query error karena typo relasi
+Action 1: Periksa error message - ada type mismatch yang confirm masalah pada relasi
+Observation 1: Kedua sumber (evaluator dan error message) konsisten - masalah pada nama relasi
+Thought 2: Instruksi koreksi sudah memberikan solusi spesifik
+Action 2: Verifikasi instruksi koreksi memberikan fix yang tepat
+Observation 2: Instruksi jelas - ganti PREREQUISIT dengan PREREQUISITE
+Thought 3: Masalah sederhana dengan solusi jelas, satu perbaikan cukup
+Final Answer:
+Masalah Utama: Error syntax - nama relasi salah
+
+Masalah Spesifik:
+1. Relasi 'PREREQUISIT' tidak valid (typo, hilang huruf E)
+
+Aksi yang Direkomendasikan:
+1. Ganti 'PREREQUISIT' dengan 'PREREQUISITE'
+
+Example 2:
+Evaluation: incorrect
+Evaluation Reasoning: Query tidak memfilter berdasarkan mata kuliah, hasil mungkin include LO1 dari mata kuliah lain
+Error Message: None (query berhasil dieksekusi)
+Correction Instructions: None (tidak ada invalid entity terdeteksi)
+
+Thought 1: Evaluator mengatakan query incorrect tapi tidak ada error eksekusi
+Action 1: Analisis reasoning - query lupa filter mata kuliah
+Observation 1: Ini bukan masalah syntax tapi masalah logic/semantik
+Thought 2: Tidak ada error message dan tidak ada instruksi koreksi dari verifier
+Action 2: Cek kenapa verifier tidak detect - kemungkinan semua entity valid, hanya logic yang salah
+Observation 2: Masalah bukan di entity tapi di filter yang kurang lengkap
+Thought 3: Feedback utama dari evaluator - perlu tambah filter MK
+Final Answer:
+Masalah Utama: Error semantik - filter tidak lengkap
+
+Masalah Spesifik:
+1. Query tidak memfilter berdasarkan mata kuliah
+2. Hasil bisa include data dari mata kuliah lain
+
+Aksi yang Direkomendasikan:
+1. Tambahkan filter MK pada node LO
+2. Pastikan query hanya mengembalikan data dari mata kuliah yang dimaksud
+
+Example 3:
+Evaluation: incorrect
+Evaluation Reasoning: Arah relasi terbalik - query mengembalikan hasil yang salah
+Error Message: None
+Correction Instructions:
+Koreksi Relasi:
+- Periksa arah relasi PREREQUISITE - pastikan sesuai dengan intent pertanyaan
+
+Thought 1: Evaluator mengatakan arah relasi salah
+Action 1: Periksa instruksi koreksi - verifier menyarankan cek arah relasi
+Observation 1: Keduanya konsisten - masalah ada pada arah relasi
+Thought 2: Tidak ada error eksekusi berarti syntax benar, hanya semantik salah
+Action 2: Identifikasi masalah - arah panah relasi perlu dibalik
+Observation 2: Ini masalah logic dimana pattern relasi tidak match dengan intent
+Thought 3: Koreksi jelas - balik arah relasi
+Final Answer:
+Masalah Utama: Error semantik - arah relasi tidak sesuai
+
+Masalah Spesifik:
+1. Arah relasi PREREQUISITE terbalik
+2. Query return hasil yang tidak sesuai intent pertanyaan
+
+Aksi yang Direkomendasikan:
+1. Balik arah relasi dari -> menjadi <- atau sebaliknya
+2. Verifikasi pattern relasi sesuai dengan yang ditanyakan
+
+Sekarang agregasi feedback berikut:
+
+Evaluation: {evaluation}
+Evaluation Reasoning: {evaluation_reasoning}
+Error Message: {error_message}
+Correction Instructions: {correction_instructions}
+
+Instruksi penting:
+- Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
+- Sintesis feedback dari SEMUA sumber (evaluator, error, instruksi)
+- Identifikasi apakah masalah syntax, semantik, atau logic
+- Prioritaskan masalah kritis
+- Akhiri dengan "Final Answer:" berisi Masalah Utama, Masalah Spesifik, dan Aksi Direkomendasikan
+
+Mulai reasoning Anda:

@@ -35,6 +35,13 @@ class IterationState:
     verifier_tokens: int = 0
     instructions_tokens: int = 0
     aggregator_tokens: int = 0
+
+    # ReAct reasoning traces
+    generator_reasoning: Optional[Dict[str, Any]] = None
+    evaluator_reasoning: Optional[Dict[str, Any]] = None
+    instructions_reasoning: Optional[Dict[str, Any]] = None
+    aggregator_reasoning: Optional[Dict[str, Any]] = None
+
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -71,6 +78,11 @@ class AgentSystemState:
     stopped_early: bool = False
     stop_reason: Optional[str] = None
 
+    # ReAct reasoning summary (aggregated across iterations)
+    total_reasoning_steps: int = 0
+    avg_reasoning_quality: float = 0.0
+    reasoning_enabled: bool = False
+
     # Timestamps
     start_time: str = field(default_factory=lambda: datetime.now().isoformat())
     end_time: Optional[str] = None
@@ -94,6 +106,9 @@ class AgentSystemState:
 
         if iteration.execution_result is not None:
             self.is_empty_result = len(iteration.execution_result) == 0
+
+        # Aggregate reasoning metrics
+        self._update_reasoning_metrics(iteration)
 
     def finalize(self, elapsed_time: float, stop_reason: Optional[str] = None):
         """
@@ -142,6 +157,53 @@ class AgentSystemState:
             return self.iterations[iteration_number - 1]
         return None
 
+    def _update_reasoning_metrics(self, iteration: IterationState):
+        """
+        Update aggregate reasoning metrics with new iteration.
+
+        Args:
+            iteration: IterationState to aggregate
+        """
+        # Count reasoning steps from all agents in this iteration
+        iteration_steps = 0
+        quality_scores = []
+
+        for reasoning_field in [
+            iteration.generator_reasoning,
+            iteration.evaluator_reasoning,
+            iteration.instructions_reasoning,
+            iteration.aggregator_reasoning
+        ]:
+            if reasoning_field and isinstance(reasoning_field, dict):
+                self.reasoning_enabled = True
+                steps = reasoning_field.get('num_steps', 0)
+                quality = reasoning_field.get('quality_score', 0.0)
+
+                iteration_steps += steps
+                if quality > 0:
+                    quality_scores.append(quality)
+
+        self.total_reasoning_steps += iteration_steps
+
+        # Update average reasoning quality
+        if quality_scores:
+            # Compute running average
+            all_quality_scores = []
+            for iter_state in self.iterations:
+                for reasoning_field in [
+                    iter_state.generator_reasoning,
+                    iter_state.evaluator_reasoning,
+                    iter_state.instructions_reasoning,
+                    iter_state.aggregator_reasoning
+                ]:
+                    if reasoning_field and isinstance(reasoning_field, dict):
+                        quality = reasoning_field.get('quality_score', 0.0)
+                        if quality > 0:
+                            all_quality_scores.append(quality)
+
+            if all_quality_scores:
+                self.avg_reasoning_quality = sum(all_quality_scores) / len(all_quality_scores)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -160,6 +222,9 @@ class AgentSystemState:
             "elapsed_time": self.elapsed_time,
             "stopped_early": self.stopped_early,
             "stop_reason": self.stop_reason,
+            "total_reasoning_steps": self.total_reasoning_steps,
+            "avg_reasoning_quality": self.avg_reasoning_quality,
+            "reasoning_enabled": self.reasoning_enabled,
             "start_time": self.start_time,
             "end_time": self.end_time
         }

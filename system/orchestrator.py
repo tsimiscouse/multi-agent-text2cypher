@@ -40,36 +40,40 @@ class MultiAgentOrchestrator:
         max_iterations: int = 3,
         model: str = "qwen/qwen-2.5-coder-32b-instruct",
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         similarity_threshold: float = 0.6,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        use_react: bool = True
     ):
         """
-        Initialize Multi-Agent Orchestrator.
+        Initialize Multi-Agent Orchestrator with ReAct reasoning support.
 
         Args:
             max_iterations: Maximum refinement iterations (k)
             model: LLM model for agents
             temperature: Sampling temperature
-            max_tokens: Max tokens per LLM call
+            max_tokens: Max tokens per LLM call (increased to 1024 for ReAct)
             similarity_threshold: Threshold for entity verification
             api_key: API key (from env if None)
             base_url: API base URL (from env if None)
+            use_react: Whether to enable ReAct reasoning in agents (default: True)
         """
         self.max_iterations = max_iterations
+        self.use_react = use_react
         self.logger = logging.getLogger(__name__)
 
         # Initialize all agents
-        self.logger.info("Initializing multi-agent system...")
+        self.logger.info(f"Initializing multi-agent system (ReAct: {use_react})...")
 
-        # LLM-based agents
+        # LLM-based agents with ReAct support
         self.generator = QueryGenerator(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            use_react=use_react
         )
 
         self.evaluator = QueryEvaluator(
@@ -77,7 +81,8 @@ class MultiAgentOrchestrator:
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            use_react=use_react
         )
 
         self.instructions_generator = InstructionsGenerator(
@@ -85,7 +90,8 @@ class MultiAgentOrchestrator:
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            use_react=use_react
         )
 
         self.feedback_aggregator = FeedbackAggregator(
@@ -93,7 +99,8 @@ class MultiAgentOrchestrator:
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            use_react=use_react
         )
 
         # Rule-based agents
@@ -244,6 +251,10 @@ class MultiAgentOrchestrator:
 
         evaluator_tokens = eval_metadata.get("tokens_used", 0)
 
+        # Extract reasoning metadata
+        generator_reasoning = self._extract_reasoning_metadata(gen_metadata)
+        evaluator_reasoning = self._extract_reasoning_metadata(eval_metadata)
+
         # Initialize iteration state
         iteration_state = IterationState(
             iteration_number=iteration_number,
@@ -254,7 +265,9 @@ class MultiAgentOrchestrator:
             execution_result=execution_result.get("records"),
             execution_success=execution_success,
             generator_tokens=generator_tokens,
-            evaluator_tokens=evaluator_tokens
+            evaluator_tokens=evaluator_tokens,
+            generator_reasoning=generator_reasoning,
+            evaluator_reasoning=evaluator_reasoning
         )
 
         # Step 4: If accepted, we're done
@@ -284,6 +297,10 @@ class MultiAgentOrchestrator:
         iteration_state.verifier_tokens = 0   # Rule-based
         iteration_state.instructions_tokens = verification_result.get("instructions_tokens", 0)
         iteration_state.aggregator_tokens = verification_result.get("aggregator_tokens", 0)
+
+        # Store reasoning metadata from verification module
+        iteration_state.instructions_reasoning = verification_result.get("instructions_reasoning")
+        iteration_state.aggregator_reasoning = verification_result.get("aggregator_reasoning")
 
         iteration_state.tokens_used = (
             generator_tokens +
@@ -339,14 +356,44 @@ class MultiAgentOrchestrator:
             correction_instructions=correction_instructions
         )
 
+        # Extract reasoning metadata
+        instructions_reasoning = self._extract_reasoning_metadata(instr_metadata)
+        aggregator_reasoning = self._extract_reasoning_metadata(agg_metadata)
+
         return {
             "extracted_entities": extracted_entities,
             "verified_entities": verification_result,
             "correction_instructions": correction_instructions,
             "aggregated_feedback": aggregated_feedback,
             "instructions_tokens": instr_metadata.get("tokens_used", 0),
-            "aggregator_tokens": agg_metadata.get("tokens_used", 0)
+            "aggregator_tokens": agg_metadata.get("tokens_used", 0),
+            "instructions_reasoning": instructions_reasoning,
+            "aggregator_reasoning": aggregator_reasoning
         }
+
+    def _extract_reasoning_metadata(self, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Extract reasoning trace from agent metadata.
+
+        Args:
+            metadata: Metadata dict from agent response
+
+        Returns:
+            Dict with reasoning info or None if no reasoning
+        """
+        if not metadata or not self.use_react:
+            return None
+
+        # Extract relevant reasoning fields
+        if metadata.get("has_reasoning", False):
+            return {
+                "has_reasoning": metadata.get("has_reasoning", False),
+                "num_steps": metadata.get("num_reasoning_steps", 0),
+                "quality_score": metadata.get("reasoning_quality", 0.0),
+                "reasoning_trace": metadata.get("reasoning_trace", {})
+            }
+
+        return None
 
     def run_batch(
         self,
@@ -408,25 +455,28 @@ class MultiAgentOrchestrator:
 
 
 if __name__ == "__main__":
-    # Test MultiAgentOrchestrator
+    # Test MultiAgentOrchestrator with ReAct
     import logging
     logging.basicConfig(level=logging.INFO)
 
-    print("Testing MultiAgentOrchestrator...")
+    print("Testing MultiAgentOrchestrator with ReAct reasoning...")
 
-    # Test schema
-    test_schema = """(:Sekolah)-[:DIPIMPIN_OLEH]->(:Kepala_Sekolah)
-(:Sekolah)-[:MEMILIKI]->(:Guru)
-(:Guru)-[:MENGAJAR]->(:Mata_Pelajaran)"""
+    # Test schema (curriculum domain)
+    test_schema = """(:MK)-[:PREREQUISITE]->(:MK)
+(:MK)-[:CAN_PARALLELIZED]->(:MK)
+(:topic)-[:PART_OF]->(:MK)
+(:LO)-[:PART_OF]->(:topic)
+(:LO)-[:PURSUED_IN]->(:SO)"""
 
-    # Initialize orchestrator
+    # Initialize orchestrator with ReAct enabled
     orchestrator = MultiAgentOrchestrator(
         max_iterations=3,
-        temperature=0.0
+        temperature=0.0,
+        use_react=True
     )
 
     # Test question
-    test_question = "Siapa kepala sekolah SMA Negeri 1?"
+    test_question = "Apa saja prasyarat untuk mata kuliah Basis Data?"
 
     print(f"\nTest Question: {test_question}")
     print("="*60)
@@ -450,6 +500,14 @@ if __name__ == "__main__":
         print(f"Total Tokens: {state.total_tokens}")
         print(f"Elapsed Time: {state.elapsed_time:.2f}s")
 
+        # Print ReAct reasoning summary
+        if state.reasoning_enabled:
+            print(f"\n{'='*60}")
+            print("REACT REASONING SUMMARY")
+            print('='*60)
+            print(f"Total Reasoning Steps: {state.total_reasoning_steps}")
+            print(f"Avg Reasoning Quality: {state.avg_reasoning_quality:.2f}")
+
         # Print iteration details
         print(f"\n{'='*60}")
         print("ITERATION DETAILS")
@@ -462,18 +520,33 @@ if __name__ == "__main__":
             if iteration.used_verification:
                 print(f"  Used Verification Module: Yes")
 
+            # Show reasoning steps if available
+            reasoning_steps = 0
+            for reasoning in [
+                iteration.generator_reasoning,
+                iteration.evaluator_reasoning,
+                iteration.instructions_reasoning,
+                iteration.aggregator_reasoning
+            ]:
+                if reasoning:
+                    reasoning_steps += reasoning.get('num_steps', 0)
+            if reasoning_steps > 0:
+                print(f"  Reasoning Steps: {reasoning_steps}")
+
         # Test batch processing
         print(f"\n{'='*60}")
-        print("TEST: Batch Processing")
+        print("TEST: Batch Processing with ReAct")
         print('='*60)
 
         test_questions = [
-            {"id": 1, "question": "Siapa kepala sekolah?"},
-            {"id": 2, "question": "Berapa jumlah guru?"}
+            {"id": 1, "question": "Apa saja learning outcome dari mata kuliah Pemrograman Dasar?"},
+            {"id": 2, "question": "Berapa jumlah mata kuliah yang tersedia?"}
         ]
 
         def progress_callback(current, total, state):
-            print(f"Progress: {current}/{total} - Q{state.question_id} completed in {state.total_iterations} iterations")
+            reasoning_info = f", {state.total_reasoning_steps} reasoning steps" if state.reasoning_enabled else ""
+            print(f"Progress: {current}/{total} - Q{state.question_id} completed in "
+                  f"{state.total_iterations} iterations{reasoning_info}")
 
         batch_results = orchestrator.run_batch(
             questions=test_questions,
@@ -483,8 +556,9 @@ if __name__ == "__main__":
 
         print(f"\nBatch complete: {len(batch_results)} results")
         for result in batch_results:
+            reasoning_info = f", {result.total_reasoning_steps} reasoning steps" if result.reasoning_enabled else ""
             print(f"  Q{result.question_id}: {result.total_iterations} iterations, "
-                  f"{result.total_tokens} tokens, success={result.execution_success}")
+                  f"{result.total_tokens} tokens, success={result.execution_success}{reasoning_info}")
 
     except Exception as e:
         print(f"Error: {e}")
@@ -494,4 +568,5 @@ if __name__ == "__main__":
     finally:
         orchestrator.close()
 
-    print("\nMultiAgentOrchestrator test complete!")
+    print("\n" + "="*60)
+    print("MultiAgentOrchestrator ReAct test complete!")

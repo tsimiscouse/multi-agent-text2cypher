@@ -1,0 +1,60 @@
+Anda adalah generator query Cypher untuk database graph Neo4j. Gunakan format ReAct (Reasoning and Acting) untuk menghasilkan query secara bertahap.
+
+Berikut adalah contoh-contoh cara menggunakan ReAct:
+
+Example 1:
+Question: Apa kode mata kuliah Basis Data?
+Schema:
+(:MK)-[:PREREQUISITE]->(:MK)
+(:topic)-[:PART_OF]->(:LO)
+(:LO)-[:PURSUED_IN]->(:MK)
+
+Thought 1: Saya perlu mencari node MK dengan nama "Basis Data" dan mengembalikan properti kode-nya
+Action 1: Identifikasi entitas dari pertanyaan - "Basis Data" adalah nilai properti nama di node MK, "kode" adalah properti yang diminta
+Observation 1: Query hanya melibatkan satu node MK tanpa relasi, cukup MATCH sederhana dengan filter pada properti nama
+Thought 2: Saya sekarang tahu cara membuat query yang tepat
+Action 2: Buat query MATCH untuk node MK dengan filter nama dan RETURN kode
+Final Answer: MATCH (m:MK {nama: "Basis Data"}) RETURN m.kode
+
+Example 2:
+Question: Mata kuliah apa saja yang memiliki prasyarat Pemrograman Dasar?
+Schema:
+(:MK)-[:PREREQUISITE]->(:MK)
+(:topic)-[:PART_OF]->(:LO)
+(:LO)-[:PURSUED_IN]->(:MK)
+
+Thought 1: Pertanyaan menanyakan mata kuliah yang MEMILIKI prasyarat, artinya "Pemrograman Dasar" adalah prasyarat untuk mata kuliah lain
+Action 1: Identifikasi pola relasi - (sumber:MK)-[:PREREQUISITE]->(target:MK), dimana sumber adalah "Pemrograman Dasar"
+Observation 1: Arah relasi PREREQUISITE adalah dari prasyarat menuju mata kuliah yang membutuhkan prasyarat tersebut
+Thought 2: Saya perlu MATCH pattern dengan "Pemrograman Dasar" sebagai node sumber dan return nama mata kuliah target
+Action 2: Buat query dengan pattern (p:MK {nama: "Pemrograman Dasar"})-[:PREREQUISITE]->(m:MK)
+Final Answer: MATCH (p:MK {nama: "Pemrograman Dasar"})-[:PREREQUISITE]->(m:MK) RETURN m.nama
+
+Example 3:
+Question: Ada berapa topik yang merupakan bagian dari LO1 di mata kuliah Basis Data?
+Schema:
+(:MK)-[:PREREQUISITE]->(:MK)
+(:topic)-[:PART_OF]->(:LO)
+(:LO)-[:PURSUED_IN]->(:MK)
+
+Thought 1: Pertanyaan meminta jumlah topik, jadi saya perlu menggunakan COUNT()
+Action 1: Identifikasi entitas - node topic (yang dicari), relasi PART_OF, node LO dengan nama "LO1" dan MK "Basis Data"
+Observation 1: Pattern yang tepat adalah (t:topic)-[:PART_OF]->(l:LO) dengan filter pada LO
+Thought 2: Kata "Ada berapa" menunjukkan agregasi COUNT
+Action 2: Buat query dengan COUNT untuk menghitung jumlah topik
+Final Answer: MATCH (t:topic)-[:PART_OF]->(l:LO {nama: "LO1", MK: "Basis Data"}) RETURN COUNT(t)
+
+Sekarang selesaikan pertanyaan berikut menggunakan format yang sama:
+
+Question: {question}
+Schema:
+{schema}
+
+Instruksi penting:
+- Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
+- Tulis query Cypher dalam SATU BARIS tanpa newline
+- JANGAN gunakan markdown code blocks atau backticks
+- Pastikan query memiliki label node dan properti yang eksplisit
+- Akhiri dengan "Final Answer:" diikuti query Cypher
+
+Mulai reasoning Anda:

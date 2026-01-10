@@ -1,0 +1,56 @@
+Anda memperbaiki query Cypher berdasarkan feedback. Gunakan format ReAct (Reasoning and Acting) untuk memperbaiki error secara sistematis.
+
+Berikut adalah contoh-contoh cara memperbaiki query dengan ReAct:
+
+Example 1:
+Question: Mata kuliah apa yang menjadi prasyarat Basis Data?
+Previous Query: MATCH (p:MK)-[:PREREQUISIT]->(m:MK {nama: "Basis Data"}) RETURN p.nama
+Feedback: Error: Relationship type 'PREREQUISIT' tidak valid. Gunakan 'PREREQUISITE' (typo - huruf E hilang di akhir)
+
+Thought 1: Ada typo pada nama relasi, seharusnya PREREQUISITE bukan PREREQUISIT
+Action 1: Identifikasi error - relasi ditulis PREREQUISIT padahal yang benar adalah PREREQUISITE
+Observation 1: Perbaikan sederhana, cukup tambahkan huruf E di akhir nama relasi
+Thought 2: Struktur query sudah benar, hanya perlu perbaiki nama relasi
+Action 2: Ganti PREREQUISIT dengan PREREQUISITE
+Final Answer: MATCH (p:MK)-[:PREREQUISITE]->(m:MK {nama: "Basis Data"}) RETURN p.nama
+
+Example 2:
+Question: Ada berapa topik dalam LO1 mata kuliah Basis Data?
+Previous Query: MATCH (t:topic)-[:PART_OF]->(l:LO {nama: "LO1"}) RETURN COUNT(t)
+Feedback: Query mengembalikan hasil yang salah - tidak memfilter berdasarkan mata kuliah. LO1 bisa ada di banyak mata kuliah berbeda.
+
+Thought 1: Query saya lupa memfilter berdasarkan mata kuliah "Basis Data"
+Action 1: Analisis feedback - node LO perlu filter tambahan untuk properti MK
+Observation 1: Node LO memiliki properti MK yang menunjukkan mata kuliah mana LO tersebut berasal
+Thought 2: Saya perlu menambahkan filter MK: "Basis Data" pada node LO
+Action 2: Update filter LO untuk include kedua properti nama dan MK
+Final Answer: MATCH (t:topic)-[:PART_OF]->(l:LO {nama: "LO1", MK: "Basis Data"}) RETURN COUNT(t)
+
+Example 3:
+Question: Tampilkan nama mata kuliah yang bisa diambil paralel dengan Kalkulus
+Previous Query: MATCH (m:MK {nama: "Kalkulus"})-[:CAN_PARALLELIZED]->(p:MK) RETURN p.nama
+Feedback: Query benar secara syntax tetapi hasil semantik salah - arah relasi terbalik. Relasi menunjukkan mata kuliah yang Kalkulus bisa paralel dengan-nya, bukan sebaliknya.
+
+Thought 1: Arah relasi saya salah, seharusnya mata kuliah lain yang mengarah ke Kalkulus
+Action 1: Analisis arah relasi - (lain)-[:CAN_PARALLELIZED]->(Kalkulus) menunjukkan mata kuliah lain yang bisa paralel dengan Kalkulus
+Observation 1: Saya perlu membalik arah relasi agar mencari node yang incoming ke Kalkulus
+Thought 2: Pattern yang benar adalah mata kuliah lain sebagai sumber dan Kalkulus sebagai target
+Action 2: Balik arah relasi dari -> menjadi <-
+Final Answer: MATCH (m:MK)<-[:CAN_PARALLELIZED]-(p:MK {nama: "Kalkulus"}) RETURN m.nama
+
+Sekarang perbaiki query berikut menggunakan format yang sama:
+
+Question: {question}
+Schema:
+{schema}
+Previous Query: {previous_query}
+Feedback: {feedback}
+
+Instruksi penting:
+- Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
+- Analisis SEMUA error yang disebutkan dalam feedback
+- Tulis query Cypher hasil perbaikan dalam SATU BARIS
+- JANGAN gunakan markdown code blocks atau backticks
+- Akhiri dengan "Final Answer:" diikuti query yang sudah diperbaiki
+
+Mulai reasoning Anda:

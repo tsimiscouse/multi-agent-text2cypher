@@ -1,14 +1,16 @@
 """
-Feedback Aggregator Agent
+Feedback Aggregator Agent with ReAct Reasoning
 
 Synthesizes feedback from multiple sources into coherent refinement guidance.
 Combines evaluator feedback and correction instructions.
+Uses ReAct (Reasoning and Acting) pattern for complex aggregation.
 """
 
 import os
 import logging
 from typing import Dict, Any, Optional, Tuple
 from openai import OpenAI
+from utils.reasoning_extractor import ReasoningExtractor
 
 
 class FeedbackAggregator:
@@ -27,23 +29,26 @@ class FeedbackAggregator:
         self,
         model: str = "qwen/qwen-2.5-coder-32b-instruct",
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        use_react: bool = True
     ):
         """
-        Initialize Feedback Aggregator agent.
+        Initialize Feedback Aggregator agent with ReAct reasoning.
 
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
+            max_tokens: Maximum tokens to generate (increased for ReAct)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
+            use_react: Whether to use ReAct prompts for complex cases (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -56,19 +61,28 @@ class FeedbackAggregator:
             )
         )
 
+        # Initialize reasoning extractor
+        self.reasoning_extractor = ReasoningExtractor()
+
         # Load prompts
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates."""
+        """Load prompt templates (ReAct or standard)."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            self.aggregation_prompt = load_prompt_template("feedback_aggregator")
-            self.logger.info("Feedback aggregator prompt loaded")
+            if self.use_react:
+                # Load ReAct prompt
+                self.aggregation_prompt = load_prompt_template("feedback_aggregator_react")
+                self.logger.info("Feedback aggregator ReAct prompt loaded")
+            else:
+                # Load standard prompt
+                self.aggregation_prompt = load_prompt_template("feedback_aggregator")
+                self.logger.info("Feedback aggregator standard prompt loaded")
 
-        except FileNotFoundError:
-            self.logger.warning("Using inline prompt template")
+        except FileNotFoundError as e:
+            self.logger.warning(f"Prompt template not found: {e}. Using inline prompt")
             self._use_inline_prompt()
 
     def _use_inline_prompt(self):
@@ -129,9 +143,10 @@ Combine all feedback above into a concise, structured message that:
         # Use LLM for complex aggregation
         try:
             prompt = self.aggregation_prompt.format(
-                evaluation=f"{evaluation.upper()}: {evaluation_reasoning}",
-                error_message=error_message or "No error message",
-                correction_instructions=correction_instructions or "No specific corrections"
+                evaluation=evaluation,
+                evaluation_reasoning=evaluation_reasoning,
+                error_message=error_message or "None",
+                correction_instructions=correction_instructions or "None"
             )
 
             response = self.client.chat.completions.create(
@@ -141,15 +156,33 @@ Combine all feedback above into a concise, structured message that:
                 max_tokens=self.max_tokens
             )
 
-            feedback = response.choices[0].message.content.strip()
+            generated_text = response.choices[0].message.content.strip()
+
+            # Extract reasoning trace if using ReAct
+            if self.use_react:
+                reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+                reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
+                # Extract final aggregated feedback from ReAct output
+                feedback = self.reasoning_extractor.extract_final_output(generated_text)
+            else:
+                reasoning_trace = {}
+                reasoning_quality = {}
+                feedback = generated_text
 
             metadata = {
                 "tokens_used": response.usage.total_tokens,
                 "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens
+                "output_tokens": response.usage.completion_tokens,
+                "has_reasoning": reasoning_trace.get('has_reasoning', False),
+                "num_reasoning_steps": reasoning_trace.get('num_steps', 0),
+                "reasoning_quality": reasoning_quality.get('quality_score', 0.0),
+                "reasoning_trace": reasoning_trace
             }
 
-            self.logger.info(f"Aggregated feedback ({metadata['tokens_used']} tokens)")
+            self.logger.info(
+                f"Aggregated feedback ({metadata['tokens_used']} tokens, "
+                f"{reasoning_trace.get('num_steps', 0)} reasoning steps)"
+            )
 
             return feedback, metadata
 
@@ -247,16 +280,17 @@ Combine all feedback above into a concise, structured message that:
 
 
 if __name__ == "__main__":
-    # Test FeedbackAggregator
+    # Test FeedbackAggregator with ReAct
     logging.basicConfig(level=logging.INFO)
 
-    print("Testing FeedbackAggregator...")
+    print("Testing FeedbackAggregator with ReAct reasoning...")
 
-    aggregator = FeedbackAggregator()
+    # Test with ReAct enabled
+    aggregator = FeedbackAggregator(use_react=True)
 
-    # Test case 1: Accept (no feedback needed)
+    # Test case 1: Accept (no feedback needed - quick path)
     print(f"\n{'='*60}")
-    print("Test 1: Accepted query")
+    print("Test 1: Accepted query (quick path)")
     print('='*60)
 
     feedback, metadata = aggregator.aggregate(
@@ -266,57 +300,64 @@ if __name__ == "__main__":
         correction_instructions=None
     )
     print(f"Feedback: {feedback}")
-    print(f"Tokens: {metadata.get('tokens_used', 0)}")
+    print(f"Tokens: {metadata.get('tokens_used', 0)} (no LLM needed)")
 
-    # Test case 2: Error with message only
+    # Test case 2: Error with message only (simple aggregation)
     print(f"\n{'='*60}")
-    print("Test 2: Error with message")
+    print("Test 2: Error with message (simple aggregation)")
     print('='*60)
 
     feedback, metadata = aggregator.aggregate(
         evaluation="error",
-        evaluation_reasoning="Query execution failed due to syntax error",
-        error_message="Property 'name' does not exist. Use 'nama' instead.",
+        evaluation_reasoning="Query execution failed due to relationship typo",
+        error_message="Relationship type 'PREREQUISIT' not found. Use 'PREREQUISITE' instead.",
         correction_instructions=None
     )
     print(f"Feedback:\n{feedback}")
     print(f"\nTokens: {metadata.get('tokens_used', 0)}")
 
-    # Test case 3: Incorrect with correction instructions
+    # Test case 3: Incorrect with correction instructions (complex - uses ReAct)
     print(f"\n{'='*60}")
-    print("Test 3: Incorrect with corrections")
+    print("Test 3: Incorrect with corrections (ReAct)")
     print('='*60)
 
     feedback, metadata = aggregator.aggregate(
         evaluation="incorrect",
-        evaluation_reasoning="Query executed but returned wrong results",
+        evaluation_reasoning="Query tidak memfilter berdasarkan mata kuliah, hasil mungkin include LO dari mata kuliah lain",
         error_message=None,
-        correction_instructions="""**Node Label Corrections:**
-- Replace 'Gru' with 'Guru'
+        correction_instructions="""**Koreksi Semantik:**
+- Tambahkan filter MK pada node LO
+- Pastikan query hanya mengembalikan data dari mata kuliah yang dimaksud
 
-**Relationship Corrections:**
-- Replace 'MENGJAR' with 'MENGAJAR'
-
-**Property Corrections:**
-- Replace property 'nam' with 'nama'"""
+**Saran:** Hubungkan LO dengan MK menggunakan relasi PART_OF"""
     )
     print(f"Feedback:\n{feedback}")
-    print(f"\nTokens: {metadata.get('tokens_used', 0)}")
+    print(f"\nMetadata:")
+    print(f"  Tokens: {metadata.get('tokens_used', 0)}")
+    print(f"  Has Reasoning: {metadata.get('has_reasoning', False)}")
+    print(f"  Reasoning Steps: {metadata.get('num_reasoning_steps', 0)}")
+    print(f"  Reasoning Quality: {metadata.get('reasoning_quality', 0.0):.2f}")
 
-    # Test case 4: Error with both message and instructions
+    # Test case 4: Error with both message and instructions (complex - uses ReAct)
     print(f"\n{'='*60}")
-    print("Test 4: Error with message and corrections")
+    print("Test 4: Error with message and corrections (ReAct)")
     print('='*60)
 
     feedback, metadata = aggregator.aggregate(
         evaluation="error",
-        evaluation_reasoning="Query has multiple errors",
-        error_message="Invalid Cypher syntax: node label 'Gru' not found",
-        correction_instructions="""**Node Label Corrections:**
-- Replace 'Gru' with 'Guru' (similarity: 0.75)"""
+        evaluation_reasoning="Query has syntax error and semantic issues",
+        error_message="Type mismatch: expected Relationship but was String",
+        correction_instructions="""**Koreksi Relasi:**
+- Ganti 'PREREQUISIT' dengan 'PREREQUISITE' (similaritas: 0.92)
+
+**Koreksi Label Node:**
+- Ganti 'M' dengan 'MK' (similaritas: 0.67)"""
     )
     print(f"Feedback:\n{feedback}")
-    print(f"\nTokens: {metadata.get('tokens_used', 0)}")
+    print(f"\nMetadata:")
+    print(f"  Tokens: {metadata.get('tokens_used', 0)}")
+    print(f"  Reasoning Steps: {metadata.get('num_reasoning_steps', 0)}")
+    print(f"  Reasoning Quality: {metadata.get('reasoning_quality', 0.0):.2f}")
 
     # Test case 5: Using state dictionary
     print(f"\n{'='*60}")
@@ -325,13 +366,15 @@ if __name__ == "__main__":
 
     test_state = {
         "evaluation": "error",
-        "evaluation_reasoning": "Execution failed",
-        "error_message": "Property 'kode_mk' does not exist",
-        "correction_instructions": "Replace 'kode_mk' with 'kode'"
+        "evaluation_reasoning": "Query execution failed",
+        "error_message": "Property 'kode_mk' does not exist. Use 'kode' instead.",
+        "correction_instructions": """**Koreksi Properti:**
+- Ganti 'kode_mk' dengan 'kode' (similaritas: 0.80)"""
     }
 
     feedback, metadata = aggregator.aggregate_from_state(test_state)
     print(f"Feedback:\n{feedback}")
     print(f"\nTokens: {metadata.get('tokens_used', 0)}")
 
-    print("\nFeedbackAggregator test complete!")
+    print("\n" + "="*60)
+    print("FeedbackAggregator ReAct test complete!")

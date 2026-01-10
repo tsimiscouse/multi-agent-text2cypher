@@ -1,7 +1,8 @@
 """
-Query Generator Agent
+Query Generator Agent with ReAct Reasoning
 
 Generates initial Cypher queries and refines them based on feedback.
+Uses ReAct (Reasoning and Acting) pattern for transparent decision-making.
 Core agent in the multi-agent system.
 """
 
@@ -9,37 +10,47 @@ import os
 from typing import Dict, Any, Optional, Tuple
 from openai import OpenAI
 import logging
+from utils.reasoning_extractor import ReasoningExtractor, extract_cypher_from_react
 
 
 class QueryGenerator:
     """
-    Agent responsible for generating and refining Cypher queries.
+    Agent responsible for generating and refining Cypher queries using ReAct reasoning.
 
     In the first iteration, generates initial query from question and schema.
     In subsequent iterations, refines query based on aggregated feedback.
+
+    Uses ReAct (Reasoning and Acting) pattern:
+    - Thought: What to analyze
+    - Action: What to do
+    - Observation: What was discovered
+    - Final Answer: The Cypher query
     """
 
     def __init__(
         self,
         model: str = "qwen/qwen-2.5-coder-32b-instruct",
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        use_react: bool = True
     ):
         """
-        Initialize Query Generator agent.
+        Initialize Query Generator agent with ReAct reasoning.
 
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
+            max_tokens: Maximum tokens to generate (increased for ReAct reasoning)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
+            use_react: Whether to use ReAct prompts (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -52,20 +63,30 @@ class QueryGenerator:
             )
         )
 
+        # Initialize reasoning extractor
+        self.reasoning_extractor = ReasoningExtractor()
+
         # Load prompts
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates."""
+        """Load prompt templates (ReAct or standard)."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            self.initial_prompt = load_prompt_template("query_generator_initial")
-            self.refinement_prompt = load_prompt_template("query_generator_refinement")
-            self.logger.info("Query generator prompts loaded")
+            if self.use_react:
+                # Load ReAct prompts
+                self.initial_prompt = load_prompt_template("query_generator_initial_react")
+                self.refinement_prompt = load_prompt_template("query_generator_refinement_react")
+                self.logger.info("Query generator ReAct prompts loaded")
+            else:
+                # Load standard prompts
+                self.initial_prompt = load_prompt_template("query_generator_initial")
+                self.refinement_prompt = load_prompt_template("query_generator_refinement")
+                self.logger.info("Query generator standard prompts loaded")
 
-        except FileNotFoundError:
-            self.logger.warning("Using inline prompt templates")
+        except FileNotFoundError as e:
+            self.logger.warning(f"Prompt template not found: {e}. Using inline prompts")
             self._use_inline_prompts()
 
     def _use_inline_prompts(self):
@@ -114,7 +135,7 @@ Given a natural language question in Indonesian and a graph schema, generate a v
         schema: str
     ) -> Tuple[str, Dict[str, Any]]:
         """
-        Generate initial Cypher query.
+        Generate initial Cypher query with ReAct reasoning.
 
         Args:
             question: Natural language question
@@ -123,7 +144,7 @@ Given a natural language question in Indonesian and a graph schema, generate a v
         Returns:
             Tuple of (query, metadata)
                 - query: Generated Cypher query
-                - metadata: Dict with tokens_used, etc.
+                - metadata: Dict with tokens_used, reasoning_trace, etc.
         """
         prompt = self.initial_prompt.format(
             question=question,
@@ -139,15 +160,33 @@ Given a natural language question in Indonesian and a graph schema, generate a v
             )
 
             generated_text = response.choices[0].message.content.strip()
-            query = self._extract_query(generated_text)
+
+            # Extract reasoning trace
+            reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+
+            # Extract query (use ReAct-aware extraction if ReAct enabled)
+            if self.use_react:
+                query = extract_cypher_from_react(generated_text)
+            else:
+                query = self._extract_query(generated_text)
+
+            # Validate reasoning quality
+            reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
 
             metadata = {
                 "tokens_used": response.usage.total_tokens,
                 "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens
+                "output_tokens": response.usage.completion_tokens,
+                "has_reasoning": reasoning_trace['has_reasoning'],
+                "num_reasoning_steps": reasoning_trace['num_steps'],
+                "reasoning_quality": reasoning_quality['quality_score'],
+                "reasoning_trace": reasoning_trace
             }
 
-            self.logger.info(f"Generated initial query ({metadata['tokens_used']} tokens)")
+            self.logger.info(
+                f"Generated initial query ({metadata['tokens_used']} tokens, "
+                f"{reasoning_trace['num_steps']} reasoning steps)"
+            )
 
             return query, metadata
 
@@ -163,7 +202,7 @@ Given a natural language question in Indonesian and a graph schema, generate a v
         feedback: str
     ) -> Tuple[str, Dict[str, Any]]:
         """
-        Refine query based on feedback.
+        Refine query based on feedback with ReAct reasoning.
 
         Args:
             question: Original question
@@ -172,7 +211,7 @@ Given a natural language question in Indonesian and a graph schema, generate a v
             feedback: Aggregated feedback from evaluator and verifier
 
         Returns:
-            Tuple of (refined_query, metadata)
+            Tuple of (refined_query, metadata with reasoning trace)
         """
         prompt = self.refinement_prompt.format(
             question=question,
@@ -190,15 +229,33 @@ Given a natural language question in Indonesian and a graph schema, generate a v
             )
 
             generated_text = response.choices[0].message.content.strip()
-            query = self._extract_query(generated_text)
+
+            # Extract reasoning trace
+            reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+
+            # Extract query
+            if self.use_react:
+                query = extract_cypher_from_react(generated_text)
+            else:
+                query = self._extract_query(generated_text)
+
+            # Validate reasoning quality
+            reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
 
             metadata = {
                 "tokens_used": response.usage.total_tokens,
                 "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens
+                "output_tokens": response.usage.completion_tokens,
+                "has_reasoning": reasoning_trace['has_reasoning'],
+                "num_reasoning_steps": reasoning_trace['num_steps'],
+                "reasoning_quality": reasoning_quality['quality_score'],
+                "reasoning_trace": reasoning_trace
             }
 
-            self.logger.info(f"Refined query ({metadata['tokens_used']} tokens)")
+            self.logger.info(
+                f"Refined query ({metadata['tokens_used']} tokens, "
+                f"{reasoning_trace['num_steps']} reasoning steps)"
+            )
 
             return query, metadata
 
@@ -243,37 +300,67 @@ Given a natural language question in Indonesian and a graph schema, generate a v
 
 
 if __name__ == "__main__":
-    # Test QueryGenerator
+    # Test QueryGenerator with ReAct
     logging.basicConfig(level=logging.INFO)
 
-    print("Testing QueryGenerator...")
+    print("Testing QueryGenerator with ReAct reasoning...")
 
-    generator = QueryGenerator()
+    # Test with ReAct enabled
+    generator = QueryGenerator(use_react=True)
 
-    test_schema = "(:Sekolah)-[:DIPIMPIN_OLEH]->(:Kepala_Sekolah)"
-    test_question = "Siapa kepala sekolah SMA Negeri 1?"
+    test_schema = """(:MK)-[:PREREQUISITE]->(:MK)
+(:topic)-[:PART_OF]->(:LO)
+(:LO)-[:PURSUED_IN]->(:MK)"""
+    test_question = "Apa prasyarat mata kuliah Basis Data?"
 
     # Test initial generation
-    print("\nTest 1: Initial generation")
+    print("\nTest 1: Initial generation with ReAct")
+    print("="*60)
     try:
         query, metadata = generator.generate_initial(test_question, test_schema)
-        print(f"Generated: {query}")
-        print(f"Tokens: {metadata['tokens_used']}")
+        print(f"Generated Query: {query}")
+        print(f"\nMetadata:")
+        print(f"  Tokens: {metadata['tokens_used']}")
+        print(f"  Has Reasoning: {metadata['has_reasoning']}")
+        print(f"  Reasoning Steps: {metadata['num_reasoning_steps']}")
+        print(f"  Reasoning Quality: {metadata['reasoning_quality']:.2f}")
+
+        # Show reasoning summary
+        if metadata['has_reasoning']:
+            print(f"\nReasoning Summary:")
+            summary = generator.reasoning_extractor.format_reasoning_summary(
+                metadata['reasoning_trace']
+            )
+            print(summary)
     except Exception as e:
         print(f"Error: {e}")
 
     # Test refinement
-    print("\nTest 2: Query refinement")
+    print("\n" + "="*60)
+    print("Test 2: Query refinement with ReAct")
+    print("="*60)
     try:
-        previous_query = "MATCH (s:Sekolah)-[:DIPIMPIN_OLEH]->(k:Kepala_Sekolah) RETURN k.name"
-        feedback = "Error: Property 'name' does not exist. Use 'nama' instead."
+        previous_query = "MATCH (p:MK)-[:PREREQUISIT]->(m:MK {nama: 'Basis Data'}) RETURN p.nama"
+        feedback = """**Relationship Corrections:**
+- Replace 'PREREQUISIT' with 'PREREQUISITE' (similarity: 0.92)"""
 
         refined, metadata = generator.refine_query(
             test_question, test_schema, previous_query, feedback
         )
-        print(f"Refined: {refined}")
-        print(f"Tokens: {metadata['tokens_used']}")
+        print(f"Refined Query: {refined}")
+        print(f"\nMetadata:")
+        print(f"  Tokens: {metadata['tokens_used']}")
+        print(f"  Reasoning Steps: {metadata['num_reasoning_steps']}")
+        print(f"  Reasoning Quality: {metadata['reasoning_quality']:.2f}")
+
+        if metadata['has_reasoning']:
+            print(f"\nReasoning Summary:")
+            summary = generator.reasoning_extractor.format_reasoning_summary(
+                metadata['reasoning_trace']
+            )
+            print(summary)
     except Exception as e:
         print(f"Error: {e}")
 
-    print("\nQueryGenerator test complete!")
+    print("\n" + "="*60)
+    print("QueryGenerator ReAct test complete!")

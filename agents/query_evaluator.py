@@ -1,14 +1,17 @@
 """
-Query Evaluator Agent
+Query Evaluator Agent with ReAct Reasoning
 
-LLM-based evaluation of generated Cypher queries.
+LLM-based evaluation of generated Cypher queries with transparent reasoning.
 Determines if query should be accepted, needs correction, or has errors.
+Uses ReAct (Reasoning and Acting) pattern for interpretable evaluation.
 """
 
 import os
+import re
 from typing import Dict, Any, Optional, Tuple
 from openai import OpenAI
 import logging
+from utils.reasoning_extractor import ReasoningExtractor
 
 
 class QueryEvaluator:
@@ -25,23 +28,26 @@ class QueryEvaluator:
         self,
         model: str = "qwen/qwen-2.5-coder-32b-instruct",
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        use_react: bool = True
     ):
         """
-        Initialize Query Evaluator agent.
+        Initialize Query Evaluator agent with ReAct reasoning.
 
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
+            max_tokens: Maximum tokens to generate (increased for ReAct reasoning)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
+            use_react: Whether to use ReAct prompts (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -54,19 +60,28 @@ class QueryEvaluator:
             )
         )
 
+        # Initialize reasoning extractor
+        self.reasoning_extractor = ReasoningExtractor()
+
         # Load prompts
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates."""
+        """Load prompt templates (ReAct or standard)."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            self.evaluation_prompt = load_prompt_template("query_evaluator")
-            self.logger.info("Query evaluator prompt loaded")
+            if self.use_react:
+                # Load ReAct prompt
+                self.evaluation_prompt = load_prompt_template("query_evaluator_react")
+                self.logger.info("Query evaluator ReAct prompt loaded")
+            else:
+                # Load standard prompt
+                self.evaluation_prompt = load_prompt_template("query_evaluator")
+                self.logger.info("Query evaluator standard prompt loaded")
 
-        except FileNotFoundError:
-            self.logger.warning("Using inline prompt template")
+        except FileNotFoundError as e:
+            self.logger.warning(f"Prompt template not found: {e}. Using inline prompt")
             self._use_inline_prompt()
 
     def _use_inline_prompt(self):
@@ -165,18 +180,33 @@ class QueryEvaluator:
 
             generated_text = response.choices[0].message.content.strip()
 
-            # Parse evaluation
+            # Extract reasoning trace if using ReAct
+            if self.use_react:
+                reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+                reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
+            else:
+                reasoning_trace = {}
+                reasoning_quality = {}
+
+            # Parse evaluation and reasoning
             evaluation = self._parse_evaluation(generated_text)
-            reasoning = generated_text
+            reasoning = self._extract_reasoning_text(generated_text)
 
             metadata = {
                 "tokens_used": response.usage.total_tokens,
                 "input_tokens": response.usage.prompt_tokens,
                 "output_tokens": response.usage.completion_tokens,
-                "error_message": error_message
+                "error_message": error_message,
+                "has_reasoning": reasoning_trace.get('has_reasoning', False),
+                "num_reasoning_steps": reasoning_trace.get('num_steps', 0),
+                "reasoning_quality": reasoning_quality.get('quality_score', 0.0),
+                "reasoning_trace": reasoning_trace
             }
 
-            self.logger.info(f"LLM evaluation: {evaluation}")
+            self.logger.info(
+                f"LLM evaluation: {evaluation} "
+                f"({reasoning_trace.get('num_steps', 0)} reasoning steps)"
+            )
 
             return evaluation, reasoning, metadata
 
@@ -187,7 +217,7 @@ class QueryEvaluator:
 
     def _parse_evaluation(self, text: str) -> str:
         """
-        Parse evaluation from LLM response.
+        Parse evaluation from LLM response (supports ReAct format).
 
         Args:
             text: Generated text from LLM
@@ -195,6 +225,12 @@ class QueryEvaluator:
         Returns:
             One of: "accept", "incorrect", "error"
         """
+        # Try to find explicit "Evaluation: <result>" pattern (ReAct format)
+        evaluation_match = re.search(r'Evaluation:\s*(accept|incorrect|error)', text, re.IGNORECASE)
+        if evaluation_match:
+            return evaluation_match.group(1).lower()
+
+        # Fallback: search in full text
         text_lower = text.lower().strip()
 
         # Check for explicit keywords
@@ -208,6 +244,27 @@ class QueryEvaluator:
         # Default to incorrect if unclear
         self.logger.warning(f"Unclear evaluation: {text[:100]}, defaulting to 'incorrect'")
         return "incorrect"
+
+    def _extract_reasoning_text(self, text: str) -> str:
+        """
+        Extract reasoning text from evaluation response.
+
+        For ReAct format, extracts the "Reasoning:" part.
+        For standard format, returns full text.
+
+        Args:
+            text: Generated text from LLM
+
+        Returns:
+            Reasoning text
+        """
+        # Try to find "Reasoning: <text>" pattern (ReAct format)
+        reasoning_match = re.search(r'Reasoning:\s*(.+?)(?:\n\n|$)', text, re.IGNORECASE | re.DOTALL)
+        if reasoning_match:
+            return reasoning_match.group(1).strip()
+
+        # Fallback: return full text
+        return text.strip()
 
     def evaluate_simple(
         self,
@@ -237,34 +294,42 @@ class QueryEvaluator:
 
 
 if __name__ == "__main__":
-    # Test QueryEvaluator
+    # Test QueryEvaluator with ReAct
     logging.basicConfig(level=logging.INFO)
 
-    print("Testing QueryEvaluator...")
+    print("Testing QueryEvaluator with ReAct reasoning...")
 
-    evaluator = QueryEvaluator()
+    # Test with ReAct enabled
+    evaluator = QueryEvaluator(use_react=True)
 
     # Test case 1: Successful query
-    print("\nTest 1: Successful query")
+    print("\nTest 1: Successful query with ReAct")
+    print("="*60)
     test_result_success = {
         "success": True,
-        "records": [{"name": "John Doe"}, {"name": "Jane Smith"}],
+        "records": [{"nama": "Pemrograman Dasar"}, {"nama": "Matematika Diskrit"}],
         "record_count": 2,
         "error": None,
         "error_type": None
     }
 
     evaluation, reasoning, metadata = evaluator.evaluate(
-        question="Who are the teachers?",
-        query="MATCH (g:Guru) RETURN g.nama AS name",
+        question="Apa saja prasyarat untuk Basis Data?",
+        query="MATCH (p:MK)-[:PREREQUISITE]->(m:MK {nama: 'Basis Data'}) RETURN p.nama",
         execution_result=test_result_success
     )
     print(f"Evaluation: {evaluation}")
-    print(f"Reasoning: {reasoning[:100]}...")
-    print(f"Tokens: {metadata['tokens_used']}")
+    print(f"Reasoning: {reasoning[:150]}...")
+    print(f"\nMetadata:")
+    print(f"  Tokens: {metadata['tokens_used']}")
+    print(f"  Has Reasoning: {metadata.get('has_reasoning', False)}")
+    print(f"  Reasoning Steps: {metadata.get('num_reasoning_steps', 0)}")
+    print(f"  Reasoning Quality: {metadata.get('reasoning_quality', 0.0):.2f}")
 
     # Test case 2: Empty result
-    print("\nTest 2: Empty result")
+    print("\n" + "="*60)
+    print("Test 2: Empty result")
+    print("="*60)
     test_result_empty = {
         "success": True,
         "records": [],
@@ -274,34 +339,40 @@ if __name__ == "__main__":
     }
 
     evaluation, reasoning, metadata = evaluator.evaluate(
-        question="Who are the teachers?",
-        query="MATCH (g:Guru {nama: 'NonExistent'}) RETURN g.nama",
+        question="Apa prasyarat untuk mata kuliah yang tidak ada?",
+        query="MATCH (p:MK)-[:PREREQUISITE]->(m:MK {nama: 'NonExistent'}) RETURN p.nama",
         execution_result=test_result_empty
     )
     print(f"Evaluation: {evaluation}")
-    print(f"Reasoning: {reasoning[:100]}...")
+    print(f"Reasoning: {reasoning[:150]}...")
+    print(f"Reasoning Steps: {metadata.get('num_reasoning_steps', 0)}")
 
-    # Test case 3: Syntax error
-    print("\nTest 3: Syntax error")
+    # Test case 3: Syntax error (quick path - no LLM)
+    print("\n" + "="*60)
+    print("Test 3: Syntax error (quick evaluation)")
+    print("="*60)
     test_result_error = {
         "success": False,
         "records": [],
         "record_count": 0,
-        "error": "Invalid syntax: expected property name",
+        "error": "Relationship type 'PREREQUISIT' not found",
         "error_type": "SyntaxError"
     }
 
     evaluation, reasoning, metadata = evaluator.evaluate(
-        question="Who are the teachers?",
-        query="MATCH (g:Guru) RETURN g.invalid_property",
+        question="Apa prasyarat Basis Data?",
+        query="MATCH (p:MK)-[:PREREQUISIT]->(m:MK {nama: 'Basis Data'}) RETURN p.nama",
         execution_result=test_result_error
     )
     print(f"Evaluation: {evaluation}")
     print(f"Reasoning: {reasoning}")
     print(f"Error type: {metadata.get('error_type')}")
+    print(f"Tokens used: {metadata['tokens_used']} (quick path - no LLM)")
 
     # Test case 4: Simple evaluation (no LLM)
-    print("\nTest 4: Simple rule-based evaluation")
+    print("\n" + "="*60)
+    print("Test 4: Simple rule-based evaluation")
+    print("="*60)
     simple_eval = evaluator.evaluate_simple(
         execution_success=True,
         is_empty_result=False,
@@ -309,4 +380,5 @@ if __name__ == "__main__":
     )
     print(f"Simple evaluation: {simple_eval}")
 
-    print("\nQueryEvaluator test complete!")
+    print("\n" + "="*60)
+    print("QueryEvaluator ReAct test complete!")

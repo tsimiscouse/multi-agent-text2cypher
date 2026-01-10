@@ -244,6 +244,118 @@ def compute_cost_metrics(
     }
 
 
+def compute_reasoning_quality(multiagent_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Compute ReAct reasoning quality metrics.
+
+    Args:
+        multiagent_results: List of multi-agent result dicts with reasoning traces
+
+    Returns:
+        Dictionary with reasoning quality statistics
+    """
+    total_questions = len(multiagent_results)
+    questions_with_reasoning = 0
+    total_reasoning_steps = 0
+    quality_scores = []
+
+    for result in multiagent_results:
+        if result.get('reasoning_enabled', False):
+            questions_with_reasoning += 1
+            total_reasoning_steps += result.get('total_reasoning_steps', 0)
+
+            avg_quality = result.get('avg_reasoning_quality', 0.0)
+            if avg_quality > 0:
+                quality_scores.append(avg_quality)
+
+    return {
+        'questions_with_reasoning': questions_with_reasoning,
+        'reasoning_coverage': questions_with_reasoning / total_questions if total_questions > 0 else 0.0,
+        'total_reasoning_steps': total_reasoning_steps,
+        'avg_reasoning_steps_per_question': total_reasoning_steps / questions_with_reasoning if questions_with_reasoning > 0 else 0.0,
+        'avg_reasoning_quality': sum(quality_scores) / len(quality_scores) if quality_scores else 0.0,
+        'min_quality': min(quality_scores) if quality_scores else 0.0,
+        'max_quality': max(quality_scores) if quality_scores else 0.0
+    }
+
+
+def compute_reasoning_statistics(multiagent_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Compute detailed ReAct reasoning statistics per iteration.
+
+    Args:
+        multiagent_results: List of multi-agent result dicts with iteration history
+
+    Returns:
+        Dictionary with detailed reasoning statistics
+    """
+    total_iterations = 0
+    iterations_with_reasoning = 0
+    reasoning_steps_by_iteration = defaultdict(list)
+    reasoning_quality_by_iteration = defaultdict(list)
+
+    # Agent-specific reasoning stats
+    agent_reasoning_steps = defaultdict(int)
+    agent_reasoning_count = defaultdict(int)
+
+    for result in multiagent_results:
+        iterations = result.get('iterations', [])
+
+        for iteration in iterations:
+            total_iterations += 1
+            iteration_has_reasoning = False
+            iteration_steps = 0
+
+            # Check each agent's reasoning in this iteration
+            for agent_name, reasoning_field in [
+                ('generator', iteration.get('generator_reasoning')),
+                ('evaluator', iteration.get('evaluator_reasoning')),
+                ('instructions', iteration.get('instructions_reasoning')),
+                ('aggregator', iteration.get('aggregator_reasoning'))
+            ]:
+                if reasoning_field and isinstance(reasoning_field, dict):
+                    iteration_has_reasoning = True
+                    steps = reasoning_field.get('num_steps', 0)
+                    quality = reasoning_field.get('quality_score', 0.0)
+
+                    iteration_steps += steps
+                    agent_reasoning_steps[agent_name] += steps
+                    agent_reasoning_count[agent_name] += 1
+
+                    if quality > 0:
+                        reasoning_quality_by_iteration[iteration.get('iteration_number', 0)].append(quality)
+
+            if iteration_has_reasoning:
+                iterations_with_reasoning += 1
+                reasoning_steps_by_iteration[iteration.get('iteration_number', 0)].append(iteration_steps)
+
+    # Compute average reasoning steps by iteration number
+    avg_steps_by_iteration = {}
+    for iter_num, steps_list in reasoning_steps_by_iteration.items():
+        avg_steps_by_iteration[iter_num] = sum(steps_list) / len(steps_list) if steps_list else 0.0
+
+    # Compute average quality by iteration number
+    avg_quality_by_iteration = {}
+    for iter_num, quality_list in reasoning_quality_by_iteration.items():
+        avg_quality_by_iteration[iter_num] = sum(quality_list) / len(quality_list) if quality_list else 0.0
+
+    # Compute agent-specific averages
+    agent_avg_steps = {}
+    for agent, total_steps in agent_reasoning_steps.items():
+        count = agent_reasoning_count[agent]
+        agent_avg_steps[agent] = total_steps / count if count > 0 else 0.0
+
+    return {
+        'total_iterations': total_iterations,
+        'iterations_with_reasoning': iterations_with_reasoning,
+        'reasoning_coverage_iterations': iterations_with_reasoning / total_iterations if total_iterations > 0 else 0.0,
+        'avg_steps_by_iteration': avg_steps_by_iteration,
+        'avg_quality_by_iteration': avg_quality_by_iteration,
+        'agent_avg_reasoning_steps': agent_avg_steps,
+        'agent_reasoning_usage': {agent: count for agent, count in agent_reasoning_count.items()}
+    }
+
+
 def compute_stratified_metrics(
     baseline_results: List[Dict[str, Any]],
     multiagent_results: List[Dict[str, Any]],
@@ -288,7 +400,7 @@ def compute_all_metrics(
     multiagent_results: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
-    Compute all evaluation metrics.
+    Compute all evaluation metrics including ReAct reasoning metrics.
 
     Args:
         baseline_results: List of baseline result dicts
@@ -306,6 +418,8 @@ def compute_all_metrics(
         'recovery': compute_recovery_rate(multiagent_results),
         'iterations': compute_iteration_statistics(multiagent_results),
         'cost': compute_cost_metrics(baseline_results, multiagent_results),
+        'reasoning_quality': compute_reasoning_quality(multiagent_results),
+        'reasoning_statistics': compute_reasoning_statistics(multiagent_results),
         'stratified': {
             'by_complexity': compute_stratified_metrics(baseline_results, multiagent_results, 'complexity'),
             'by_reasoning': compute_stratified_metrics(baseline_results, multiagent_results, 'reasoning_level'),
@@ -330,11 +444,62 @@ if __name__ == "__main__":
     ]
 
     multiagent_mock = [
-        {'pass_at_k': True, 'execution_success': True, 'total_tokens': 300, 'elapsed_time': 3.2, 'total_iterations': 1, 'complexity': 'Easy'},
-        {'pass_at_k': True, 'execution_success': True, 'total_tokens': 800, 'elapsed_time': 8.5, 'total_iterations': 3, 'complexity': 'Medium',
-         'all_iterations': [{'evaluation': 'error'}, {'evaluation': 'incorrect'}, {'evaluation': 'accept'}]},
-        {'pass_at_k': True, 'execution_success': True, 'total_tokens': 600, 'elapsed_time': 6.1, 'total_iterations': 2, 'complexity': 'Hard',
-         'all_iterations': [{'evaluation': 'error'}, {'evaluation': 'accept'}]},
+        {
+            'pass_at_k': True, 'execution_success': True, 'total_tokens': 300, 'elapsed_time': 3.2,
+            'total_iterations': 1, 'complexity': 'Easy', 'reasoning_enabled': True,
+            'total_reasoning_steps': 5, 'avg_reasoning_quality': 0.85,
+            'iterations': [
+                {
+                    'iteration_number': 1, 'evaluation': 'accept',
+                    'generator_reasoning': {'num_steps': 3, 'quality_score': 0.9},
+                    'evaluator_reasoning': {'num_steps': 2, 'quality_score': 0.8}
+                }
+            ]
+        },
+        {
+            'pass_at_k': True, 'execution_success': True, 'total_tokens': 800, 'elapsed_time': 8.5,
+            'total_iterations': 3, 'complexity': 'Medium', 'reasoning_enabled': True,
+            'total_reasoning_steps': 18, 'avg_reasoning_quality': 0.75,
+            'all_iterations': [{'evaluation': 'error'}, {'evaluation': 'incorrect'}, {'evaluation': 'accept'}],
+            'iterations': [
+                {
+                    'iteration_number': 1, 'evaluation': 'error',
+                    'generator_reasoning': {'num_steps': 3, 'quality_score': 0.7},
+                    'evaluator_reasoning': {'num_steps': 2, 'quality_score': 0.6}
+                },
+                {
+                    'iteration_number': 2, 'evaluation': 'incorrect',
+                    'generator_reasoning': {'num_steps': 3, 'quality_score': 0.8},
+                    'evaluator_reasoning': {'num_steps': 2, 'quality_score': 0.7},
+                    'instructions_reasoning': {'num_steps': 2, 'quality_score': 0.75},
+                    'aggregator_reasoning': {'num_steps': 2, 'quality_score': 0.8}
+                },
+                {
+                    'iteration_number': 3, 'evaluation': 'accept',
+                    'generator_reasoning': {'num_steps': 3, 'quality_score': 0.85},
+                    'evaluator_reasoning': {'num_steps': 1, 'quality_score': 0.9}
+                }
+            ]
+        },
+        {
+            'pass_at_k': True, 'execution_success': True, 'total_tokens': 600, 'elapsed_time': 6.1,
+            'total_iterations': 2, 'complexity': 'Hard', 'reasoning_enabled': True,
+            'total_reasoning_steps': 12, 'avg_reasoning_quality': 0.8,
+            'all_iterations': [{'evaluation': 'error'}, {'evaluation': 'accept'}],
+            'iterations': [
+                {
+                    'iteration_number': 1, 'evaluation': 'error',
+                    'generator_reasoning': {'num_steps': 3, 'quality_score': 0.75},
+                    'evaluator_reasoning': {'num_steps': 2, 'quality_score': 0.7},
+                    'instructions_reasoning': {'num_steps': 2, 'quality_score': 0.8}
+                },
+                {
+                    'iteration_number': 2, 'evaluation': 'accept',
+                    'generator_reasoning': {'num_steps': 3, 'quality_score': 0.9},
+                    'evaluator_reasoning': {'num_steps': 2, 'quality_score': 0.85}
+                }
+            ]
+        },
     ]
 
     # Test Pass@k
@@ -367,14 +532,34 @@ if __name__ == "__main__":
     print(f"  Tokens: {cost_metrics['tokens']}")
     print(f"  Latency: {cost_metrics['latency']}")
 
+    # Test Reasoning Quality
+    print("\nReAct Reasoning Quality:")
+    reasoning_quality = compute_reasoning_quality(multiagent_mock)
+    for key, value in reasoning_quality.items():
+        print(f"  {key}: {value}")
+
+    # Test Reasoning Statistics
+    print("\nReAct Reasoning Statistics:")
+    reasoning_stats = compute_reasoning_statistics(multiagent_mock)
+    print(f"  Total iterations: {reasoning_stats['total_iterations']}")
+    print(f"  Iterations with reasoning: {reasoning_stats['iterations_with_reasoning']}")
+    print(f"  Reasoning coverage: {reasoning_stats['reasoning_coverage_iterations']:.1%}")
+    print(f"  Agent avg steps: {reasoning_stats['agent_avg_reasoning_steps']}")
+    print(f"  Avg steps by iteration: {reasoning_stats['avg_steps_by_iteration']}")
+
     # Test All Metrics
     print("\n" + "="*60)
-    print("All Metrics:")
+    print("All Metrics (including ReAct):")
     all_metrics = compute_all_metrics(baseline_mock, multiagent_mock)
     print(f"Dataset size: {all_metrics['dataset_size']}")
     print(f"Pass@k improvement: {all_metrics['pass_at_k']['improvement']:.1%}")
     print(f"Recovery rate: {all_metrics['recovery']['recovery_rate']:.1%}")
     print(f"Avg iterations: {all_metrics['iterations']['avg_iterations']:.2f}")
     print(f"Token overhead: {all_metrics['cost']['tokens']['token_overhead_pct']:.1f}%")
+    print(f"\nReAct Reasoning:")
+    print(f"  Coverage: {all_metrics['reasoning_quality']['reasoning_coverage']:.1%}")
+    print(f"  Avg quality: {all_metrics['reasoning_quality']['avg_reasoning_quality']:.2f}")
+    print(f"  Avg steps/question: {all_metrics['reasoning_quality']['avg_reasoning_steps_per_question']:.1f}")
 
-    print("\nEvaluation metrics test complete!")
+    print("\n" + "="*60)
+    print("Evaluation metrics test complete!")
