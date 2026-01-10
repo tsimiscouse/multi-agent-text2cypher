@@ -31,24 +31,23 @@ class FeedbackAggregator:
         temperature: float = 0.0,
         max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        use_react: bool = True
+        base_url: Optional[str] = None
     ):
         """
         Initialize Feedback Aggregator agent with ReAct reasoning.
 
+        ReAct (Reasoning and Acting) is always enabled for transparent aggregation traces.
+
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate (increased for ReAct)
+            max_tokens: Maximum tokens to generate (1024 for ReAct)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
-            use_react: Whether to use ReAct prompts for complex cases (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -68,18 +67,13 @@ class FeedbackAggregator:
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates (ReAct or standard)."""
+        """Load ReAct prompt templates."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            if self.use_react:
-                # Load ReAct prompt
-                self.aggregation_prompt = load_prompt_template("feedback_aggregator_react")
-                self.logger.info("Feedback aggregator ReAct prompt loaded")
-            else:
-                # Load standard prompt
-                self.aggregation_prompt = load_prompt_template("feedback_aggregator")
-                self.logger.info("Feedback aggregator standard prompt loaded")
+            # Always load ReAct prompt
+            self.aggregation_prompt = load_prompt_template("feedback_aggregator_react")
+            self.logger.info("Feedback aggregator ReAct prompt loaded")
 
         except FileNotFoundError as e:
             self.logger.warning(f"Prompt template not found: {e}. Using inline prompt")
@@ -158,16 +152,11 @@ Combine all feedback above into a concise, structured message that:
 
             generated_text = response.choices[0].message.content.strip()
 
-            # Extract reasoning trace if using ReAct
-            if self.use_react:
-                reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
-                reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
-                # Extract final aggregated feedback from ReAct output
-                feedback = self.reasoning_extractor.extract_final_output(generated_text)
-            else:
-                reasoning_trace = {}
-                reasoning_quality = {}
-                feedback = generated_text
+            # Extract reasoning trace (always enabled with ReAct)
+            reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+            reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
+            # Extract final aggregated feedback from ReAct output
+            feedback = self.reasoning_extractor.extract_final_output(generated_text)
 
             metadata = {
                 "tokens_used": response.usage.total_tokens,
@@ -286,7 +275,8 @@ if __name__ == "__main__":
     print("Testing FeedbackAggregator with ReAct reasoning...")
 
     # Test with ReAct enabled
-    aggregator = FeedbackAggregator(use_react=True)
+    # Initialize aggregator (ReAct always enabled)
+    aggregator = FeedbackAggregator()
 
     # Test case 1: Accept (no feedback needed - quick path)
     print(f"\n{'='*60}")

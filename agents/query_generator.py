@@ -33,24 +33,23 @@ class QueryGenerator:
         temperature: float = 0.0,
         max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        use_react: bool = True
+        base_url: Optional[str] = None
     ):
         """
         Initialize Query Generator agent with ReAct reasoning.
 
+        ReAct (Reasoning and Acting) is always enabled for transparent reasoning traces.
+
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate (increased for ReAct reasoning)
+            max_tokens: Maximum tokens to generate (1024 for ReAct reasoning)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
-            use_react: Whether to use ReAct prompts (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -70,20 +69,14 @@ class QueryGenerator:
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates (ReAct or standard)."""
+        """Load ReAct prompt templates."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            if self.use_react:
-                # Load ReAct prompts
-                self.initial_prompt = load_prompt_template("query_generator_initial_react")
-                self.refinement_prompt = load_prompt_template("query_generator_refinement_react")
-                self.logger.info("Query generator ReAct prompts loaded")
-            else:
-                # Load standard prompts
-                self.initial_prompt = load_prompt_template("query_generator_initial")
-                self.refinement_prompt = load_prompt_template("query_generator_refinement")
-                self.logger.info("Query generator standard prompts loaded")
+            # Always load ReAct prompts
+            self.initial_prompt = load_prompt_template("query_generator_initial_react")
+            self.refinement_prompt = load_prompt_template("query_generator_refinement_react")
+            self.logger.info("Query generator ReAct prompts loaded")
 
         except FileNotFoundError as e:
             self.logger.warning(f"Prompt template not found: {e}. Using inline prompts")
@@ -164,11 +157,8 @@ Given a natural language question in Indonesian and a graph schema, generate a v
             # Extract reasoning trace
             reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
 
-            # Extract query (use ReAct-aware extraction if ReAct enabled)
-            if self.use_react:
-                query = extract_cypher_from_react(generated_text)
-            else:
-                query = self._extract_query(generated_text)
+            # Extract query (always use ReAct-aware extraction)
+            query = extract_cypher_from_react(generated_text)
 
             # Validate reasoning quality
             reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
@@ -233,11 +223,8 @@ Given a natural language question in Indonesian and a graph schema, generate a v
             # Extract reasoning trace
             reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
 
-            # Extract query
-            if self.use_react:
-                query = extract_cypher_from_react(generated_text)
-            else:
-                query = self._extract_query(generated_text)
+            # Extract query (always use ReAct-aware extraction)
+            query = extract_cypher_from_react(generated_text)
 
             # Validate reasoning quality
             reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
@@ -305,8 +292,8 @@ if __name__ == "__main__":
 
     print("Testing QueryGenerator with ReAct reasoning...")
 
-    # Test with ReAct enabled
-    generator = QueryGenerator(use_react=True)
+    # Initialize generator (ReAct always enabled)
+    generator = QueryGenerator()
 
     test_schema = """(:MK)-[:PREREQUISITE]->(:MK)
 (:topic)-[:PART_OF]->(:LO)

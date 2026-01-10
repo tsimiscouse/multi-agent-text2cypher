@@ -43,37 +43,36 @@ class MultiAgentOrchestrator:
         max_tokens: int = 1024,
         similarity_threshold: float = 0.6,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        use_react: bool = True
+        base_url: Optional[str] = None
     ):
         """
-        Initialize Multi-Agent Orchestrator with ReAct reasoning support.
+        Initialize Multi-Agent Orchestrator with ReAct reasoning.
+
+        ReAct (Reasoning and Acting) is always enabled in all 4 LLM agents
+        for transparent reasoning traces and interpretability.
 
         Args:
             max_iterations: Maximum refinement iterations (k)
             model: LLM model for agents
             temperature: Sampling temperature
-            max_tokens: Max tokens per LLM call (increased to 1024 for ReAct)
+            max_tokens: Max tokens per LLM call (1024 for ReAct reasoning)
             similarity_threshold: Threshold for entity verification
             api_key: API key (from env if None)
             base_url: API base URL (from env if None)
-            use_react: Whether to enable ReAct reasoning in agents (default: True)
         """
         self.max_iterations = max_iterations
-        self.use_react = use_react
         self.logger = logging.getLogger(__name__)
 
         # Initialize all agents
-        self.logger.info(f"Initializing multi-agent system (ReAct: {use_react})...")
+        self.logger.info("Initializing multi-agent system with ReAct reasoning...")
 
-        # LLM-based agents with ReAct support
+        # LLM-based agents (ReAct always enabled)
         self.generator = QueryGenerator(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url,
-            use_react=use_react
+            base_url=base_url
         )
 
         self.evaluator = QueryEvaluator(
@@ -81,8 +80,7 @@ class MultiAgentOrchestrator:
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url,
-            use_react=use_react
+            base_url=base_url
         )
 
         self.instructions_generator = InstructionsGenerator(
@@ -90,8 +88,7 @@ class MultiAgentOrchestrator:
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url,
-            use_react=use_react
+            base_url=base_url
         )
 
         self.feedback_aggregator = FeedbackAggregator(
@@ -99,8 +96,7 @@ class MultiAgentOrchestrator:
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            base_url=base_url,
-            use_react=use_react
+            base_url=base_url
         )
 
         # Rule-based agents
@@ -381,10 +377,10 @@ class MultiAgentOrchestrator:
         Returns:
             Dict with reasoning info or None if no reasoning
         """
-        if not metadata or not self.use_react:
+        if not metadata:
             return None
 
-        # Extract relevant reasoning fields
+        # Extract relevant reasoning fields (ReAct always enabled)
         if metadata.get("has_reasoning", False):
             return {
                 "has_reasoning": metadata.get("has_reasoning", False),
@@ -468,11 +464,10 @@ if __name__ == "__main__":
 (:LO)-[:PART_OF]->(:topic)
 (:LO)-[:PURSUED_IN]->(:SO)"""
 
-    # Initialize orchestrator with ReAct enabled
+    # Initialize orchestrator (ReAct always enabled)
     orchestrator = MultiAgentOrchestrator(
         max_iterations=3,
-        temperature=0.0,
-        use_react=True
+        temperature=0.0
     )
 
     # Test question

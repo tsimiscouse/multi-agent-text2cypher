@@ -27,24 +27,23 @@ class InstructionsGenerator:
         temperature: float = 0.0,
         max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        use_react: bool = True
+        base_url: Optional[str] = None
     ):
         """
         Initialize Instructions Generator agent with ReAct reasoning.
 
+        ReAct (Reasoning and Acting) is always enabled for transparent reasoning traces.
+
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate (increased for ReAct)
+            max_tokens: Maximum tokens to generate (1024 for ReAct reasoning)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
-            use_react: Whether to use ReAct prompts for complex cases (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -64,18 +63,13 @@ class InstructionsGenerator:
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates (ReAct or standard)."""
+        """Load ReAct prompt templates."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            if self.use_react:
-                # Load ReAct prompt
-                self.instructions_prompt = load_prompt_template("instructions_generator_react")
-                self.logger.info("Instructions generator ReAct prompt loaded")
-            else:
-                # Load standard prompt
-                self.instructions_prompt = load_prompt_template("instructions_generator")
-                self.logger.info("Instructions generator standard prompt loaded")
+            # Always load ReAct prompt
+            self.instructions_prompt = load_prompt_template("instructions_generator_react")
+            self.logger.info("Instructions generator ReAct prompt loaded")
 
         except FileNotFoundError as e:
             self.logger.warning(f"Prompt template not found: {e}. Using inline prompt")
@@ -135,8 +129,8 @@ Be specific and actionable.
             invalid_entities = self._format_invalid_entities(verification_result)
             suggestions = self._format_suggestions(verification_result)
 
-            # Include query in prompt if using ReAct
-            if self.use_react and query:
+            # Always include query in prompt (ReAct enabled)
+            if query:
                 prompt = self.instructions_prompt.format(
                     query=query,
                     invalid_entities=invalid_entities,
@@ -157,16 +151,11 @@ Be specific and actionable.
 
             generated_text = response.choices[0].message.content.strip()
 
-            # Extract reasoning trace if using ReAct
-            if self.use_react:
-                reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
-                reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
-                # Extract final instructions from ReAct output
-                instructions = self.reasoning_extractor.extract_final_output(generated_text)
-            else:
-                reasoning_trace = {}
-                reasoning_quality = {}
-                instructions = generated_text
+            # Extract reasoning trace (always enabled with ReAct)
+            reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+            reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
+            # Extract final instructions from ReAct output
+            instructions = self.reasoning_extractor.extract_final_output(generated_text)
 
             metadata = {
                 "tokens_used": response.usage.total_tokens,

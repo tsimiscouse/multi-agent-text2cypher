@@ -30,24 +30,23 @@ class QueryEvaluator:
         temperature: float = 0.0,
         max_tokens: int = 1024,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        use_react: bool = True
+        base_url: Optional[str] = None
     ):
         """
         Initialize Query Evaluator agent with ReAct reasoning.
 
+        ReAct (Reasoning and Acting) is always enabled for transparent evaluation traces.
+
         Args:
             model: LLM model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate (increased for ReAct reasoning)
+            max_tokens: Maximum tokens to generate (1024 for ReAct reasoning)
             api_key: API key (default: from env var)
             base_url: API base URL (default: from env var)
-            use_react: Whether to use ReAct prompts (default: True)
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.use_react = use_react
 
         self.logger = logging.getLogger(__name__)
 
@@ -67,18 +66,13 @@ class QueryEvaluator:
         self._load_prompts()
 
     def _load_prompts(self):
-        """Load prompt templates (ReAct or standard)."""
+        """Load ReAct prompt templates."""
         from utils.prompt_loader import load_prompt_template
 
         try:
-            if self.use_react:
-                # Load ReAct prompt
-                self.evaluation_prompt = load_prompt_template("query_evaluator_react")
-                self.logger.info("Query evaluator ReAct prompt loaded")
-            else:
-                # Load standard prompt
-                self.evaluation_prompt = load_prompt_template("query_evaluator")
-                self.logger.info("Query evaluator standard prompt loaded")
+            # Always load ReAct prompt
+            self.evaluation_prompt = load_prompt_template("query_evaluator_react")
+            self.logger.info("Query evaluator ReAct prompt loaded")
 
         except FileNotFoundError as e:
             self.logger.warning(f"Prompt template not found: {e}. Using inline prompt")
@@ -180,13 +174,9 @@ class QueryEvaluator:
 
             generated_text = response.choices[0].message.content.strip()
 
-            # Extract reasoning trace if using ReAct
-            if self.use_react:
-                reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
-                reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
-            else:
-                reasoning_trace = {}
-                reasoning_quality = {}
+            # Extract reasoning trace (always enabled with ReAct)
+            reasoning_trace = self.reasoning_extractor.extract_reasoning_trace(generated_text)
+            reasoning_quality = self.reasoning_extractor.validate_reasoning_quality(reasoning_trace)
 
             # Parse evaluation and reasoning
             evaluation = self._parse_evaluation(generated_text)
@@ -300,7 +290,8 @@ if __name__ == "__main__":
     print("Testing QueryEvaluator with ReAct reasoning...")
 
     # Test with ReAct enabled
-    evaluator = QueryEvaluator(use_react=True)
+    # Initialize evaluator (ReAct always enabled)
+    evaluator = QueryEvaluator()
 
     # Test case 1: Successful query
     print("\nTest 1: Successful query with ReAct")
