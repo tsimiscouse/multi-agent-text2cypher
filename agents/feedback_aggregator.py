@@ -97,12 +97,15 @@ Synthesize the following feedback into clear, actionable guidance:
 **Error Message:**
 {error_message}
 
+**Detailed Error Analysis:**
+{error_analysis}
+
 **Correction Instructions:**
 {correction_instructions}
 
 **Task:**
 Combine all feedback above into a concise, structured message that:
-1. Explains what went wrong
+1. Explains what went wrong (use detailed error analysis if available)
 2. Lists specific corrections needed
 3. Provides clear guidance for fixing the query
 
@@ -113,6 +116,7 @@ Combine all feedback above into a concise, structured message that:
         evaluation: str,
         evaluation_reasoning: str,
         error_message: Optional[str] = None,
+        error_analysis: Optional[str] = None,
         correction_instructions: Optional[str] = None
     ) -> Tuple[str, Dict[str, Any]]:
         """
@@ -122,6 +126,7 @@ Combine all feedback above into a concise, structured message that:
             evaluation: Evaluation result ("accept", "incorrect", "error")
             evaluation_reasoning: Reasoning from QueryEvaluator
             error_message: Error message from query execution (if any)
+            error_analysis: Detailed error analysis from DetailedErrorParser (NEW)
             correction_instructions: Instructions from InstructionsGenerator (if any)
 
         Returns:
@@ -134,9 +139,9 @@ Combine all feedback above into a concise, structured message that:
             return "Query accepted. No refinement needed.", {"tokens_used": 0}
 
         # Check if we have enough information for simple aggregation
-        if self._is_simple_aggregation(error_message, correction_instructions):
+        if self._is_simple_aggregation(error_message, error_analysis, correction_instructions):
             feedback = self._aggregate_simple(
-                evaluation, evaluation_reasoning, error_message, correction_instructions
+                evaluation, evaluation_reasoning, error_message, error_analysis, correction_instructions
             )
             return feedback, {"tokens_used": 0}
 
@@ -146,6 +151,7 @@ Combine all feedback above into a concise, structured message that:
                 evaluation=evaluation,
                 evaluation_reasoning=evaluation_reasoning,
                 error_message=error_message or "None",
+                error_analysis=error_analysis or "None",
                 correction_instructions=correction_instructions or "None"
             )
 
@@ -190,13 +196,14 @@ Combine all feedback above into a concise, structured message that:
             self.logger.error(f"Error aggregating feedback: {e}")
             # Fallback to simple aggregation
             feedback = self._aggregate_simple(
-                evaluation, evaluation_reasoning, error_message, correction_instructions
+                evaluation, evaluation_reasoning, error_message, error_analysis, correction_instructions
             )
             return feedback, {"tokens_used": 0, "error": str(e)}
 
     def _is_simple_aggregation(
         self,
         error_message: Optional[str],
+        error_analysis: Optional[str],
         correction_instructions: Optional[str]
     ) -> bool:
         """
@@ -204,6 +211,7 @@ Combine all feedback above into a concise, structured message that:
 
         Args:
             error_message: Error message
+            error_analysis: Detailed error analysis
             correction_instructions: Correction instructions
 
         Returns:
@@ -213,8 +221,12 @@ Combine all feedback above into a concise, structured message that:
         if correction_instructions and len(correction_instructions) < 500:
             return True
 
+        # Use simple aggregation if we only have error analysis (Self-Refine feedback)
+        if error_analysis and not correction_instructions:
+            return True
+
         # Use simple aggregation if we only have error message
-        if error_message and not correction_instructions:
+        if error_message and not correction_instructions and not error_analysis:
             return True
 
         return False
@@ -224,6 +236,7 @@ Combine all feedback above into a concise, structured message that:
         evaluation: str,
         evaluation_reasoning: str,
         error_message: Optional[str],
+        error_analysis: Optional[str],
         correction_instructions: Optional[str]
     ) -> str:
         """
@@ -233,6 +246,7 @@ Combine all feedback above into a concise, structured message that:
             evaluation: Evaluation result
             evaluation_reasoning: Reasoning
             error_message: Error message
+            error_analysis: Detailed error analysis (NEW - prioritized for Self-Refine)
             correction_instructions: Correction instructions
 
         Returns:
@@ -244,8 +258,10 @@ Combine all feedback above into a concise, structured message that:
         feedback_parts.append(f"**Evaluation: {evaluation.upper()}**")
         feedback_parts.append(evaluation_reasoning)
 
-        # Add error message if present
-        if error_message:
+        # Prioritize detailed error analysis over generic error message
+        if error_analysis:
+            feedback_parts.append(f"\n{error_analysis}")
+        elif error_message:
             feedback_parts.append(f"\n**Error:**")
             feedback_parts.append(error_message)
 

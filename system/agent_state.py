@@ -42,6 +42,11 @@ class IterationState:
     instructions_reasoning: Optional[Dict[str, Any]] = None
     aggregator_reasoning: Optional[Dict[str, Any]] = None
 
+    # Detailed error tracking (NEW - for Self-Refine analysis)
+    detailed_error: Optional[Dict[str, Any]] = None
+    error_category: Optional[str] = None  # "syntax", "semantic", "logic", "unknown"
+    error_severity: Optional[str] = None  # "critical", "moderate", "minor"
+
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> Dict[str, Any]:

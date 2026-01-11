@@ -240,6 +240,13 @@ class MultiAgentOrchestrator:
         execution_success = execution_result.get("success", False)
         error_message = execution_result.get("error")
 
+        # NEW: Extract detailed error for Self-Refine feedback
+        detailed_error = execution_result.get("detailed_error")
+        error_analysis = None
+        if detailed_error:
+            # Format error for LLM consumption
+            error_analysis = self.executor.error_parser.format_for_llm(detailed_error)
+
         # Step 3: Evaluate Query
         self.logger.debug(f"Step 3: Query evaluation")
 
@@ -267,7 +274,11 @@ class MultiAgentOrchestrator:
             generator_tokens=generator_tokens,
             evaluator_tokens=evaluator_tokens,
             generator_reasoning=generator_reasoning,
-            evaluator_reasoning=evaluator_reasoning
+            evaluator_reasoning=evaluator_reasoning,
+            # NEW: Detailed error tracking for Self-Refine
+            detailed_error=detailed_error,
+            error_category=detailed_error.get("error_category") if detailed_error else None,
+            error_severity=detailed_error.get("severity") if detailed_error else None
         )
 
         # Step 4: If accepted, we're done
@@ -282,7 +293,8 @@ class MultiAgentOrchestrator:
             query=query,
             evaluation=evaluation,
             eval_reasoning=eval_reasoning,
-            error_message=error_message
+            error_message=error_message,
+            error_analysis=error_analysis  # NEW: Pass detailed error analysis
         )
 
         # Update iteration state with verification results
@@ -316,7 +328,8 @@ class MultiAgentOrchestrator:
         query: str,
         evaluation: str,
         eval_reasoning: str,
-        error_message: Optional[str]
+        error_message: Optional[str],
+        error_analysis: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Run verification module (steps 4-7 of the architecture).
@@ -328,6 +341,7 @@ class MultiAgentOrchestrator:
             evaluation: Evaluation result
             eval_reasoning: Evaluation reasoning
             error_message: Error message (if execution failed)
+            error_analysis: Detailed error analysis from DetailedErrorParser (NEW)
 
         Returns:
             Dictionary with verification results
@@ -353,6 +367,7 @@ class MultiAgentOrchestrator:
             evaluation=evaluation,
             evaluation_reasoning=eval_reasoning,
             error_message=error_message,
+            error_analysis=error_analysis,
             correction_instructions=correction_instructions
         )
 

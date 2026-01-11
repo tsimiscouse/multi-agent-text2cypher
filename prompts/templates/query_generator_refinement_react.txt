@@ -1,5 +1,25 @@
 Anda memperbaiki query Cypher berdasarkan feedback. Gunakan format ReAct (Reasoning and Acting) untuk memperbaiki error secara sistematis.
 
+SELF-REFINEMENT PROCESS (3 Langkah):
+
+Sebelum menulis query baru, ikuti langkah refleksi berikut:
+
+Step 1: REFLECT on the Error (Lakukan Analisis Mendalam)
+- Apa yang salah pada query sebelumnya?
+- KENAPA query gagal? (syntax error? property salah? label salah? logic error?)
+- Apa yang error message / detailed error analysis katakan?
+- Di bagian mana error terjadi? (location, line, column jika tersedia)
+
+Step 2: PLAN the Fix (Rencana Perbaikan)
+- Apa yang perlu diubah untuk memperbaiki error?
+- Bagaimana memastikan perbaikan mengatasi root cause?
+- Apakah ada error lain yang perlu diperbaiki bersamaan?
+
+Step 3: GENERATE Improved Query (Eksekusi)
+- Terapkan perbaikan yang sudah direncanakan
+- Double-check syntax, labels, properties, dan relationships
+- Pastikan query sesuai dengan intent pertanyaan asli
+
 Berikut adalah contoh-contoh cara memperbaiki query dengan ReAct:
 
 Example 1:
@@ -47,10 +67,12 @@ Previous Query: {previous_query}
 Feedback: {feedback}
 
 Instruksi penting:
+- WAJIB ikuti 3 langkah Self-Refinement: REFLECT → PLAN → GENERATE
 - Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
-- Analisis SEMUA error yang disebutkan dalam feedback
+- Analisis SEMUA error yang disebutkan dalam feedback (prioritaskan detailed error analysis)
+- Identifikasi root cause error, bukan hanya symptom-nya
 - Tulis query Cypher hasil perbaikan dalam SATU BARIS
 - JANGAN gunakan markdown code blocks atau backticks
 - Akhiri dengan "Final Answer:" diikuti query yang sudah diperbaiki
 
-Mulai reasoning Anda:
+Mulai reasoning Anda dengan REFLECT (analisis error):

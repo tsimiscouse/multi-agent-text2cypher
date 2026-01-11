@@ -81,13 +81,15 @@ Sekarang agregasi feedback berikut:
 Evaluation: {evaluation}
 Evaluation Reasoning: {evaluation_reasoning}
 Error Message: {error_message}
+Detailed Error Analysis: {error_analysis}
 Correction Instructions: {correction_instructions}
 
 Instruksi penting:
 - Gunakan format Thought, Action, Observation dengan numbering (1, 2, 3, ...)
-- Sintesis feedback dari SEMUA sumber (evaluator, error, instruksi)
+- Sintesis feedback dari SEMUA sumber (evaluator, error message, detailed error analysis, instruksi)
+- PRIORITASKAN detailed error analysis jika tersedia (lebih terstruktur dan actionable)
 - Identifikasi apakah masalah syntax, semantik, atau logic
-- Prioritaskan masalah kritis
+- Prioritaskan masalah kritis (critical severity)
 - Akhiri dengan "Final Answer:" berisi Masalah Utama, Masalah Spesifik, dan Aksi Direkomendasikan
 
 Mulai reasoning Anda:

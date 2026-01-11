@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 from neo4j import GraphDatabase, exceptions as neo4j_exceptions
 import logging
 
+from system.error_parser import DetailedErrorParser
+
 
 class GraphExecutor:
     """
@@ -40,6 +42,9 @@ class GraphExecutor:
         self.database = database or os.getenv("NEO4J_DATABASE", "neo4j")
 
         self.logger = logging.getLogger(__name__)
+
+        # Initialize error parser for Self-Refine feedback
+        self.error_parser = DetailedErrorParser()
 
         # Initialize driver
         try:
@@ -113,6 +118,8 @@ class GraphExecutor:
         """
         Execute query and return results with metadata.
 
+        Enhanced with DetailedErrorParser for Self-Refine feedback.
+
         Args:
             query: Cypher query string
             parameters: Optional query parameters
@@ -124,6 +131,7 @@ class GraphExecutor:
                 - records: list of result records (if successful)
                 - error: error message (if failed)
                 - error_type: type of error (if failed)
+                - detailed_error: structured error dict (if failed) - NEW
                 - record_count: number of records returned
         """
         try:
@@ -134,46 +142,37 @@ class GraphExecutor:
                 "records": records,
                 "record_count": len(records),
                 "error": None,
-                "error_type": None
+                "error_type": None,
+                "detailed_error": None
             }
 
-        except neo4j_exceptions.CypherSyntaxError as e:
-            return {
-                "success": False,
-                "records": [],
-                "record_count": 0,
-                "error": str(e),
-                "error_type": "SyntaxError"
-            }
+        except (neo4j_exceptions.CypherSyntaxError, neo4j_exceptions.ClientError, Exception) as e:
+            # Parse error with DetailedErrorParser for actionable feedback
+            detailed_error = self.error_parser.parse_error(e, query)
 
-        except neo4j_exceptions.ClientError as e:
-            error_msg = str(e)
-
-            # Categorize error type
-            if "property" in error_msg.lower() or "attribute" in error_msg.lower():
-                error_type = "PropertyError"
-            elif "label" in error_msg.lower() or "node" in error_msg.lower():
-                error_type = "LabelError"
-            elif "relationship" in error_msg.lower():
-                error_type = "RelationshipError"
+            # Legacy error_type for backward compatibility
+            if isinstance(e, neo4j_exceptions.CypherSyntaxError):
+                error_type = "SyntaxError"
+            elif isinstance(e, neo4j_exceptions.ClientError):
+                error_msg = str(e).lower()
+                if "property" in error_msg or "attribute" in error_msg:
+                    error_type = "PropertyError"
+                elif "label" in error_msg or "node" in error_msg:
+                    error_type = "LabelError"
+                elif "relationship" in error_msg:
+                    error_type = "RelationshipError"
+                else:
+                    error_type = "ClientError"
             else:
-                error_type = "ClientError"
+                error_type = "UnknownError"
 
-            return {
-                "success": False,
-                "records": [],
-                "record_count": 0,
-                "error": error_msg,
-                "error_type": error_type
-            }
-
-        except Exception as e:
             return {
                 "success": False,
                 "records": [],
                 "record_count": 0,
                 "error": str(e),
-                "error_type": "UnknownError"
+                "error_type": error_type,
+                "detailed_error": detailed_error  # NEW: Structured error for LLM
             }
 
     def test_connection(self) -> bool:
